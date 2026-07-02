@@ -1,0 +1,9 @@
+# Local environment & secrets
+.env
+
+# Build artifacts (air output, compiled binary, logs)
+/tmp/
+*.log
+
+# JS test dependencies
+node_modules/

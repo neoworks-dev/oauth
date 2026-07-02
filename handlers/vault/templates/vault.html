@@ -1,0 +1,752 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Neoworks Vault</title>
+		<link rel="stylesheet" href="/auth/static/neoworks.css" />
+		<style>
+			/* Sandbox stays hidden until the crypto bridge is ready; JS toggles .show. */
+			#card { display: none; }
+			#card.show { display: block; }
+		</style>
+		<script src="/auth/static/libsodium.js"></script>
+		<script src="/auth/static/libsodium-wrappers.js"></script>
+		<!-- Double Ratchet engine, shared verbatim with the test suite. -->
+		<script type="module">
+			import { createRatchet } from '/auth/static/chat-ratchet.js';
+			import { createScopeKeys, decryptableLabels } from '/auth/static/scope-keys.js';
+			window.__createRatchet = createRatchet;
+			window.__createScopeKeys = createScopeKeys;
+			window.__decryptableLabels = decryptableLabels;
+		</script>
+	</head>
+	<body>
+		<div id="card" class="card">
+			<div class="logo">
+				<svg width="20" height="20" viewBox="0 0 100 100" fill="none" aria-hidden="true">
+					<circle cx="50" cy="50" r="40" stroke="currentColor" stroke-width="7" />
+					<path d="M 81 27 C 73 51, 55 69, 26 74" stroke="currentColor" stroke-width="7" stroke-linecap="round" />
+				</svg>
+				<span>NeoWorks</span>
+			</div>
+			<h1>Unlock encryption</h1>
+			<p class="subtitle">
+				<strong>{{.AppName}}</strong> stores your data <strong>end-to-end encrypted</strong>.
+				Unlock your NeoWorks encryption key so {{.AppName}} can encrypt and read it. This window
+				is served by NeoWorks — your key is used here and is
+				<strong>never shared with {{.AppName}}</strong>.
+			</p>
+			<div id="password-row" class="hidden">
+				<label for="password">NeoWorks password</label>
+				<input id="password" type="password" placeholder="••••••••" autocomplete="current-password" />
+			</div>
+			<button id="action-btn">Unlock encryption</button>
+			<div class="err" id="error"></div>
+			<div class="footnote">Secured by NeoWorks · your key never leaves this window</div>
+		</div>
+
+		<script>
+			(function () {
+				const ALLOWED_ORIGINS = {{.AllowedOriginsJSON}};
+
+				const card = document.getElementById('card');
+				const passwordRow = document.getElementById('password-row');
+				const passwordInput = document.getElementById('password');
+				const actionBtn = document.getElementById('action-btn');
+				const errorEl = document.getElementById('error');
+
+				let b64;
+				let parentOrigin = null;
+				let email = null;
+				let needPassword = false;
+
+				// Account keypair derived from the AMK on unlock (X25519). The private
+				// key stays in this page only; the public key is published so others can
+				// seal media DEKs to it. Per-object DEKs are unsealed on demand.
+				let myPubKey = null;
+				let myPrivKey = null;
+				const KEYPAIR_CONTEXT = 'nw-account-keypair-v1';
+				// Root secret for chat (Double Ratchet) device identities, kept keyed by
+				// the AMK so per-device identity keys are deterministically reproducible
+				// after recovery without ever storing a private key on the server.
+				let chatRootKey = null;
+				// Symmetric key that seals per-session ratchet state at rest. The app
+				// persists only the sealed blob; the server never sees ratchet state.
+				let chatStateKey = null;
+				let ratchet = null;
+				const CHAT_IDENTITY_CONTEXT = 'nw-chat-identity-v1';
+				const CHAT_STATE_CONTEXT = 'nw-chat-ratchet-state-v1';
+				// Cache AES-GCM keys by their wrapped-DEK string so multi-chunk objects
+				// don't re-unseal/re-import the DEK for every chunk.
+				const dekCache = new Map();
+
+				// ── Scope-bound keys ───────────────────────────────────────────────
+				// Per-scope keypairs are derived from the AMK so decryption capability
+				// can be bound to OAuth scopes. scopeMaster is a resident secret (see
+				// scope-keys.js) so the literal AMK is still zeroed after unlock; per-
+				// scope keypairs derive lazily and cache by label. grantedScopes comes
+				// from introspecting the embedding client's access token at vault-init;
+				// allowedLabels is the set of encryption labels it may decrypt.
+				let scopeKeysApi = null;
+				let scopeMaster = null;
+				const scopeKeyCache = new Map();
+				let grantedScopes = [];
+				let allowedLabels = new Set();
+				const LEGACY_LABEL = 'legacy';
+
+				function post(target, msg, transfer) {
+					if (!target) return;
+					window.parent.postMessage(msg, target, transfer || []);
+				}
+				function setError(m) {
+					errorEl.textContent = m || '';
+				}
+				function showCard(withPassword) {
+					needPassword = !!withPassword;
+					passwordRow.classList.toggle('hidden', !withPassword);
+					actionBtn.textContent = withPassword ? 'Unlock' : 'Enable encryption';
+					card.classList.add('show');
+				}
+				function hideCard() {
+					card.classList.remove('show');
+				}
+
+				// ── IndexedDB: vault's own device keypair (per-partition) ──────────
+				function idb() {
+					return new Promise((resolve, reject) => {
+						const req = indexedDB.open('neoworks-vault', 1);
+						req.onupgradeneeded = () => req.result.createObjectStore('kv');
+						req.onsuccess = () => resolve(req.result);
+						req.onerror = () => reject(req.error);
+					});
+				}
+				async function idbGet(key) {
+					const db = await idb();
+					return new Promise((resolve, reject) => {
+						const tx = db.transaction('kv', 'readonly').objectStore('kv').get(key);
+						tx.onsuccess = () => resolve(tx.result ?? null);
+						tx.onerror = () => reject(tx.error);
+					});
+				}
+				async function idbSet(key, val) {
+					const db = await idb();
+					return new Promise((resolve, reject) => {
+						const tx = db.transaction('kv', 'readwrite');
+						tx.objectStore('kv').put(val, key);
+						tx.oncomplete = () => resolve();
+						tx.onerror = () => reject(tx.error);
+					});
+				}
+
+				// ── Crypto ────────────────────────────────────────────────────────
+				// Derive the account keypair from the AMK (keyed BLAKE2b → X25519 seed)
+				// and publish the public key. The AMK is zeroed afterwards; it is only
+				// ever needed to re-derive this keypair.
+				async function importAmk(amkBytes) {
+					const seed = sodium.crypto_generichash(32, sodium.from_string(KEYPAIR_CONTEXT), amkBytes);
+					const keypair = sodium.crypto_box_seed_keypair(seed);
+					myPubKey = keypair.publicKey;
+					myPrivKey = keypair.privateKey;
+					// Derive the chat root before the AMK is zeroed; it stays in memory
+					// like myPrivKey and never leaves this page.
+					chatRootKey = sodium.crypto_generichash(32, sodium.from_string(CHAT_IDENTITY_CONTEXT), amkBytes);
+					chatStateKey = sodium.crypto_generichash(32, sodium.from_string(CHAT_STATE_CONTEXT), amkBytes);
+					// Resident scope-derivation secret. Lets us zero the literal AMK now
+					// yet still derive per-scope keypairs lazily for the lifetime of the
+					// session (no more sensitive than myPrivKey, which is already resident).
+					scopeMaster = scopeKeysApi.deriveScopeMaster(amkBytes);
+					sodium.memzero(seed);
+					sodium.memzero(amkBytes);
+					scopeKeyCache.clear();
+					await publishPublicKey();
+					await publishScopeKeys();
+				}
+
+				// Resolve the keypair for an encryption label. LEGACY_LABEL maps to the
+				// pre-scope account keypair so old objects stay readable.
+				function keypairForLabel(label) {
+					if (!label || label === LEGACY_LABEL) {
+						return { publicKey: myPubKey, privateKey: myPrivKey };
+					}
+					let kp = scopeKeyCache.get(label);
+					if (!kp) {
+						kp = scopeKeysApi.scopeKeypair(scopeMaster, label);
+						scopeKeyCache.set(label, kp);
+					}
+					return kp;
+				}
+
+				// ── Chat identity & prekeys (X3DH) ─────────────────────────────────
+				// Derive this device's long-term chat identity from the chat root salted
+				// by the device public key, so each device is a distinct ratchet endpoint
+				// yet every key is reproducible from the AMK on the same device.
+				function deriveChatIdentity(devicePubKeyB64) {
+					const devicePub = sodium.from_base64(devicePubKeyB64, b64);
+					const idSeed = sodium.crypto_generichash(32, devicePub, chatRootKey);
+					const dhSeed = sodium.crypto_generichash(32, sodium.from_string('dh'), idSeed);
+					const signSeed = sodium.crypto_generichash(32, sodium.from_string('sign'), idSeed);
+					const identity = sodium.crypto_box_seed_keypair(dhSeed);
+					const signing = sodium.crypto_sign_seed_keypair(signSeed);
+					sodium.memzero(idSeed);
+					sodium.memzero(dhSeed);
+					sodium.memzero(signSeed);
+					return { identity, signing };
+				}
+
+				// Generate a fresh signed prekey + a batch of one-time prekeys. Prekeys are
+				// random (not AMK-derived) — they rotate and are consumed once each. Their
+				// private halves are persisted in the vault partition so an inbound prekey
+				// message can complete X3DH later; only public halves are returned.
+				async function generateChatPrekeys(signingPriv, count) {
+					let counter = (await idbGet('chat-prekey-counter')) || 0;
+
+					const signedKp = sodium.crypto_box_keypair();
+					const signedKeyId = ++counter;
+					const signature = sodium.crypto_sign_detached(signedKp.publicKey, signingPriv);
+
+					const stored = (await idbGet('chat-prekey-privs')) || { signed: {}, oneTime: {} };
+					stored.signed[signedKeyId] = sodium.to_base64(signedKp.privateKey, b64);
+
+					const oneTimePublic = [];
+					for (let i = 0; i < count; i++) {
+						const kp = sodium.crypto_box_keypair();
+						const keyId = ++counter;
+						stored.oneTime[keyId] = sodium.to_base64(kp.privateKey, b64);
+						oneTimePublic.push({ key_id: keyId, public_key: sodium.to_base64(kp.publicKey, b64) });
+					}
+
+					await idbSet('chat-prekey-privs', stored);
+					await idbSet('chat-prekey-counter', counter);
+
+					return {
+						signed_prekey: {
+							key_id: signedKeyId,
+							public_key: sodium.to_base64(signedKp.publicKey, b64),
+							signature: sodium.to_base64(signature, b64)
+						},
+						one_time_prekeys: oneTimePublic
+					};
+				}
+
+				// Build the full publishable bundle for this device.
+				async function initChatIdentity(count) {
+					const kp = await idbGet('devkey');
+					if (!kp) throw new Error('no device key');
+					const { identity, signing } = deriveChatIdentity(kp.pub);
+					const prekeys = await generateChatPrekeys(signing.privateKey, count || 100);
+					return {
+						device_public_key: kp.pub,
+						identity_key: sodium.to_base64(identity.publicKey, b64),
+						signing_key: sodium.to_base64(signing.publicKey, b64),
+						signed_prekey: prekeys.signed_prekey,
+						one_time_prekeys: prekeys.one_time_prekeys
+					};
+				}
+
+				// ── Double Ratchet sessions ────────────────────────────────────────
+				function getRatchet() {
+					if (!ratchet) {
+						if (!window.__createRatchet) throw new Error('ratchet not loaded');
+						ratchet = window.__createRatchet(sodium);
+					}
+					return ratchet;
+				}
+
+				// Seal/open session state under the AMK-derived state key. The app stores
+				// only the sealed blob; it is useless without the AMK.
+				function sealState(state) {
+					const plain = sodium.from_string(JSON.stringify(state));
+					const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
+					const ct = sodium.crypto_secretbox_easy(plain, nonce, chatStateKey);
+					const out = new Uint8Array(nonce.length + ct.length);
+					out.set(nonce, 0);
+					out.set(ct, nonce.length);
+					return sodium.to_base64(out, b64);
+				}
+				function openState(sealedB64) {
+					const raw = sodium.from_base64(sealedB64, b64);
+					const nonce = raw.slice(0, sodium.crypto_secretbox_NONCEBYTES);
+					const ct = raw.slice(sodium.crypto_secretbox_NONCEBYTES);
+					const plain = sodium.crypto_secretbox_open_easy(ct, nonce, chatStateKey);
+					if (!plain) throw new Error('cannot open session state');
+					return JSON.parse(sodium.to_string(plain));
+				}
+
+				async function chatIdentityB64() {
+					const kp = await idbGet('devkey');
+					if (!kp) throw new Error('no device key');
+					const { identity } = deriveChatIdentity(kp.pub);
+					return {
+						priv: sodium.to_base64(identity.privateKey, b64),
+						pub: sodium.to_base64(identity.publicKey, b64)
+					};
+				}
+
+				// Look up a stored prekey private by id and recompute its public key.
+				async function loadPrekeyPriv(kind, keyId) {
+					const stored = (await idbGet('chat-prekey-privs')) || { signed: {}, oneTime: {} };
+					const privB64 = stored[kind] && stored[kind][keyId];
+					if (!privB64) return null;
+					const priv = sodium.from_base64(privB64, b64);
+					const pub = sodium.crypto_scalarmult_base(priv);
+					return { priv: privB64, pub: sodium.to_base64(pub, b64), stored };
+				}
+
+				// Establish (initiator side) and return sealed state + the X3DH header the
+				// caller attaches to its first message.
+				async function chatX3dhInit(bundle) {
+					const id = await chatIdentityB64();
+					const r = getRatchet();
+					const out = r.x3dhInitiator({ identityPriv: id.priv, identityPub: id.pub, bundle });
+					return { sealedState: sealState(out.state), x3dh: out.x3dh };
+				}
+
+				// Establish (responder side) from an inbound prekey message and decrypt it.
+				// The consumed one-time prekey private is dropped so it is never reused.
+				async function chatX3dhAccept(message) {
+					const x3dh = message.header.x3dh;
+					if (!x3dh) throw new Error('not a prekey message');
+					const id = await chatIdentityB64();
+					const signed = await loadPrekeyPriv('signed', x3dh.spk_id);
+					if (!signed) throw new Error('unknown signed prekey');
+					let oneTimePriv;
+					let stored = signed.stored;
+					if (x3dh.otpk_id != null) {
+						const otpk = await loadPrekeyPriv('oneTime', x3dh.otpk_id);
+						if (otpk) {
+							oneTimePriv = otpk.priv;
+							stored = otpk.stored;
+						}
+					}
+					const r = getRatchet();
+					let state = r.x3dhResponder({
+						identityPriv: id.priv,
+						signedPrekeyPub: signed.pub,
+						signedPrekeyPriv: signed.priv,
+						oneTimePrekeyPriv: oneTimePriv,
+						remote: { ik: x3dh.ik, ek: x3dh.ek }
+					});
+					const dec = r.ratchetDecrypt(state, message);
+					if (x3dh.otpk_id != null && stored.oneTime) {
+						delete stored.oneTime[x3dh.otpk_id];
+						await idbSet('chat-prekey-privs', stored);
+					}
+					return { sealedState: sealState(dec.state), plaintext: sodium.to_base64(dec.plaintext, b64) };
+				}
+
+				function chatEncrypt(sealedState, plaintextB64, extra) {
+					const r = getRatchet();
+					const state = openState(sealedState);
+					const out = r.ratchetEncrypt(state, sodium.from_base64(plaintextB64, b64), extra || null);
+					return { sealedState: sealState(out.state), message: out.message };
+				}
+
+				function chatDecrypt(sealedState, message) {
+					const r = getRatchet();
+					const state = openState(sealedState);
+					const out = r.ratchetDecrypt(state, message);
+					return { sealedState: sealState(out.state), plaintext: sodium.to_base64(out.plaintext, b64) };
+				}
+
+				// ── Group (Sender Keys) ────────────────────────────────────────────
+				// Create this device's sender key for a group; return the sealed sender
+				// state and the public distribution to hand to members over 1:1 sessions.
+				function chatGroupCreate() {
+					const r = getRatchet();
+					const state = r.groupSenderCreate();
+					return { sealedState: sealState(state), distribution: r.groupSenderDistribution(state) };
+				}
+
+				function chatGroupEncrypt(sealedState, plaintextB64) {
+					const r = getRatchet();
+					const state = openState(sealedState);
+					const out = r.groupEncrypt(state, sodium.from_base64(plaintextB64, b64));
+					return { sealedState: sealState(out.state), message: out.message };
+				}
+
+				// Store a member's sender key (from their distribution) as sealed receiver state.
+				function chatGroupAccept(distribution) {
+					const r = getRatchet();
+					const state = r.groupReceiverFromDistribution(distribution);
+					return { sealedState: sealState(state) };
+				}
+
+				function chatGroupDecrypt(sealedState, message) {
+					const r = getRatchet();
+					const state = openState(sealedState);
+					const out = r.groupDecrypt(state, message);
+					return { sealedState: sealState(out.state), plaintext: sodium.to_base64(out.plaintext, b64) };
+				}
+
+				// Best-effort: publish the derived public key so senders can seal DEKs
+				// to this account. Non-fatal if it fails — encrypt/decrypt still work.
+				async function publishPublicKey() {
+					try {
+						const pub = sodium.to_base64(myPubKey, b64);
+						const fingerprint = sodium.to_base64(sodium.crypto_generichash(32, myPubKey), b64);
+						await fetch('/api/v1/keys/public', {
+							method: 'PUT',
+							credentials: 'include',
+							headers: { 'Content-Type': 'application/json' },
+							body: JSON.stringify({ public_key: pub, fingerprint })
+						});
+					} catch (_) {
+						// ignore — directory publish is not required for local crypto
+					}
+				}
+
+				// Publish each granted scope's public key to the directory so writers
+				// (this account's other apps, or other users sharing in) can seal DEKs to
+				// the right scope without ever holding a private key. Best-effort.
+				async function publishScopeKeys() {
+					for (const label of allowedLabels) {
+						if (label === LEGACY_LABEL) continue;
+						try {
+							const kp = keypairForLabel(label);
+							await fetch('/api/v1/keys/scope-public', {
+								method: 'PUT',
+								credentials: 'include',
+								headers: { 'Content-Type': 'application/json' },
+								body: JSON.stringify({ scope: label, public_key: sodium.to_base64(kp.publicKey, b64) })
+							});
+						} catch (_) {
+							// ignore — directory publish is not required for local crypto
+						}
+					}
+				}
+
+				// Resolve the embedding client's granted scopes by introspecting its
+				// access token (same-origin, first-party). The resulting allowedLabels
+				// is the ONLY thing that lets a caller decrypt a scope — an unknown or
+				// inactive token leaves it empty, so the Vault decrypts nothing.
+				async function introspectScopes(token) {
+					grantedScopes = [];
+					allowedLabels = new Set();
+					if (!token) return;
+					try {
+						const res = await fetch('/oauth/introspect', {
+							method: 'POST',
+							credentials: 'include',
+							headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+							body: 'token=' + encodeURIComponent(token)
+						});
+						if (!res.ok) return;
+						const body = await res.json();
+						if (!body.active) return;
+						grantedScopes = String(body.scope || '').split(' ').filter(Boolean);
+						allowedLabels = window.__decryptableLabels(grantedScopes);
+					} catch (_) {
+						// ignore — caller is left with no decryption capability
+					}
+				}
+
+				function sealDek(dekBytes, pubKeyBytes) {
+					return sodium.to_base64(sodium.crypto_box_seal(dekBytes, pubKeyBytes), b64);
+				}
+				function openDek(wrappedB64, kp) {
+					return sodium.crypto_box_seal_open(sodium.from_base64(wrappedB64, b64), kp.publicKey, kp.privateKey);
+				}
+				function aesKeyFromDek(dekBytes) {
+					return crypto.subtle.importKey('raw', dekBytes, 'AES-GCM', false, ['encrypt', 'decrypt']);
+				}
+				async function aesKeyForWrapped(wrappedB64, kp) {
+					const cached = dekCache.get(wrappedB64);
+					if (cached) return cached;
+					const dek = openDek(wrappedB64, kp);
+					if (!dek) throw new Error('cannot unseal key');
+					const key = await aesKeyFromDek(dek);
+					sodium.memzero(dek);
+					dekCache.set(wrappedB64, key);
+					return key;
+				}
+
+				// Encrypt a chunk under the given scope. With no wrappedDEK, mint a fresh
+				// per-object DEK sealed to the scope's pubkey and return it so later
+				// chunks reuse the same DEK.
+				async function encryptBytes(plain, wrappedDEK, label) {
+					const kp = keypairForLabel(label);
+					let wrapped = wrappedDEK || null;
+					let key;
+					if (wrapped) {
+						key = await aesKeyForWrapped(wrapped, kp);
+					} else {
+						const dek = crypto.getRandomValues(new Uint8Array(32));
+						wrapped = sealDek(dek, kp.publicKey);
+						key = await aesKeyFromDek(dek);
+						sodium.memzero(dek);
+						dekCache.set(wrapped, key);
+					}
+					const iv = crypto.getRandomValues(new Uint8Array(12));
+					const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plain));
+					const out = new Uint8Array(12 + ct.length);
+					out.set(iv, 0);
+					out.set(ct, 12);
+					return { ciphertext: out, wrappedDEK: wrapped };
+				}
+				async function decryptBytes(enc, wrappedDEK, label) {
+					const key = await aesKeyForWrapped(wrappedDEK, keypairForLabel(label));
+					const iv = enc.slice(0, 12);
+					const ct = enc.slice(12);
+					return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct));
+				}
+
+				// Re-seal an object's DEK to another user's public key (sharing). The DEK
+				// plaintext is unsealed (with the owner's scope key) and re-sealed
+				// entirely inside this page.
+				function rewrapDek(wrappedDEK, recipientPubKeyB64, label) {
+					const dek = openDek(wrappedDEK, keypairForLabel(label));
+					if (!dek) throw new Error('cannot unseal key');
+					const recipientPub = sodium.from_base64(recipientPubKeyB64, b64);
+					const out = sealDek(dek, recipientPub);
+					sodium.memzero(dek);
+					return out;
+				}
+
+				// ── Unlock paths ────────────────────────────────────────────────────
+				async function fetchWrappedAmk(publicKeyB64) {
+					const res = await fetch(
+						'/api/v1/keys/devices/me?public_key=' + encodeURIComponent(publicKeyB64),
+						{ credentials: 'include' }
+					);
+					if (!res.ok) return null;
+					const body = await res.json();
+					return body.wrapped_amk || null;
+				}
+
+				async function unlockWithStoredKeypair() {
+					const kp = await idbGet('devkey');
+					if (!kp) return false;
+					const wrapped = await fetchWrappedAmk(kp.pub);
+					if (!wrapped) return false;
+					const amk = sodium.crypto_box_seal_open(
+						sodium.from_base64(wrapped, b64),
+						sodium.from_base64(kp.pub, b64),
+						sodium.from_base64(kp.priv, b64)
+					);
+					await importAmk(amk);
+					return true;
+				}
+
+				async function unlockWithPassword(password) {
+					if (!email) throw new Error('missing email');
+					const cres = await fetch(
+						'/api/v1/auth/key-challenge?email=' + encodeURIComponent(email),
+						{ credentials: 'include' }
+					);
+					if (!cres.ok) throw new Error('account has no encryption key set up');
+					const ch = await cres.json();
+					const passwordKey = sodium.crypto_pwhash(
+						ch.argon2_keylen,
+						password,
+						sodium.from_base64(ch.argon2_salt, b64),
+						ch.argon2_time,
+						ch.argon2_memory,
+						sodium.crypto_pwhash_ALG_ARGON2ID13
+					);
+					const wrapped = sodium.from_base64(ch.password_wrapped_amk, b64);
+					const nonce = wrapped.slice(0, sodium.crypto_secretbox_NONCEBYTES);
+					const ciphertext = wrapped.slice(sodium.crypto_secretbox_NONCEBYTES);
+					const amk = sodium.crypto_secretbox_open_easy(ciphertext, nonce, passwordKey);
+					if (!amk) throw new Error('wrong password');
+
+					// Register this vault as a device so future loads unlock silently.
+					const keypair = sodium.crypto_box_keypair();
+					const pub = sodium.to_base64(keypair.publicKey, b64);
+					const priv = sodium.to_base64(keypair.privateKey, b64);
+					const wrappedForDevice = sodium.crypto_box_seal(amk, keypair.publicKey);
+					const reg = await fetch('/api/v1/keys/devices', {
+						method: 'POST',
+						credentials: 'include',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({
+							public_key: pub,
+							wrapped_amk: sodium.to_base64(wrappedForDevice, b64),
+							name: '{{.AppName}} Vault'
+						})
+					});
+					if (!reg.ok) throw new Error('could not register device');
+					await idbSet('devkey', { pub, priv });
+					await importAmk(amk);
+				}
+
+				function ready() {
+					hideCard();
+					post(parentOrigin, { type: 'ready' });
+				}
+
+				// ── Action button: gesture-driven storage access + unlock ───────────
+				actionBtn.addEventListener('click', async () => {
+					setError('');
+					actionBtn.disabled = true;
+					try {
+						if (document.requestStorageAccess && !(await safeHasAccess())) {
+							await document.requestStorageAccess();
+						}
+						if (needPassword) {
+							await unlockWithPassword(passwordInput.value);
+							ready();
+						} else if (await unlockWithStoredKeypair()) {
+							ready();
+						} else {
+							showCard(true); // fall back to password
+						}
+					} catch (e) {
+						setError(e && e.message ? e.message : 'failed');
+					} finally {
+						actionBtn.disabled = false;
+					}
+				});
+
+				async function safeHasAccess() {
+					try {
+						return await document.hasStorageAccess();
+					} catch {
+						return false;
+					}
+				}
+
+				async function trySilentUnlock() {
+					try {
+						if (!(await safeHasAccess())) return false;
+						return await unlockWithStoredKeypair();
+					} catch {
+						return false;
+					}
+				}
+
+				// ── Message bridge ──────────────────────────────────────────────────
+				window.addEventListener('message', async (e) => {
+					if (!ALLOWED_ORIGINS.includes(e.origin)) return;
+					const msg = e.data || {};
+
+					await sodium.ready;
+					if (!b64) b64 = sodium.base64_variants.ORIGINAL;
+
+					if (msg.type === 'vault-init') {
+						parentOrigin = e.origin;
+						email = msg.email || null;
+						// Bind this session's decryption capability to the embedding
+						// client's granted OAuth scopes (from its access token). Done
+						// before unlock so publishScopeKeys covers the granted labels.
+						await introspectScopes(msg.token);
+						if (await trySilentUnlock()) {
+							ready();
+						} else {
+							showCard(false);
+							post(parentOrigin, { type: 'locked' });
+						}
+						return;
+					}
+
+					if (msg.type === 'chat-init-identity') {
+						if (!chatRootKey) {
+							e.source.postMessage({ type: 'result', id: msg.id, ok: false, error: 'locked' }, e.origin);
+							return;
+						}
+						try {
+							const bundle = await initChatIdentity(msg.count);
+							e.source.postMessage({ type: 'result', id: msg.id, ok: true, bundle }, e.origin);
+						} catch (err) {
+							e.source.postMessage(
+								{ type: 'result', id: msg.id, ok: false, error: String(err && err.message) },
+								e.origin
+							);
+						}
+						return;
+					}
+
+					if (msg.type && msg.type.indexOf('chat-') === 0 && msg.type !== 'chat-init-identity') {
+						if (!chatStateKey) {
+							e.source.postMessage({ type: 'result', id: msg.id, ok: false, error: 'locked' }, e.origin);
+							return;
+						}
+						try {
+							let result;
+							if (msg.type === 'chat-x3dh-init') {
+								result = await chatX3dhInit(msg.bundle);
+							} else if (msg.type === 'chat-x3dh-accept') {
+								result = await chatX3dhAccept(msg.message);
+							} else if (msg.type === 'chat-encrypt') {
+								result = chatEncrypt(msg.sealedState, msg.plaintext, msg.x3dh);
+							} else if (msg.type === 'chat-decrypt') {
+								result = chatDecrypt(msg.sealedState, msg.message);
+							} else if (msg.type === 'chat-group-create') {
+								result = chatGroupCreate();
+							} else if (msg.type === 'chat-group-encrypt') {
+								result = chatGroupEncrypt(msg.sealedState, msg.plaintext);
+							} else if (msg.type === 'chat-group-accept') {
+								result = chatGroupAccept(msg.distribution);
+							} else if (msg.type === 'chat-group-decrypt') {
+								result = chatGroupDecrypt(msg.sealedState, msg.message);
+							} else {
+								throw new Error('unknown chat op');
+							}
+							e.source.postMessage({ type: 'result', id: msg.id, ok: true, ...result }, e.origin);
+						} catch (err) {
+							e.source.postMessage(
+								{ type: 'result', id: msg.id, ok: false, error: String(err && err.message) },
+								e.origin
+							);
+						}
+						return;
+					}
+
+					if (msg.type === 'encrypt' || msg.type === 'decrypt' || msg.type === 'rewrap') {
+						if (!myPrivKey) {
+							e.source.postMessage({ type: 'result', id: msg.id, ok: false, error: 'locked' }, e.origin);
+							return;
+						}
+						// Bind the operation to a scope the embedding client was granted.
+						// LEGACY_LABEL (pre-migration objects) is itself a label gated by a
+						// `legacy:read` grant, so untrusted clients can't read old data.
+						const label = msg.scope || LEGACY_LABEL;
+						if (!allowedLabels.has(label)) {
+							e.source.postMessage(
+								{ type: 'result', id: msg.id, ok: false, error: 'scope_not_granted' },
+								e.origin
+							);
+							return;
+						}
+						try {
+							if (msg.type === 'rewrap') {
+								const wrapped = rewrapDek(msg.wrappedDEK, msg.recipientPubKey, label);
+								e.source.postMessage({ type: 'result', id: msg.id, ok: true, wrappedDEK: wrapped }, e.origin);
+								return;
+							}
+							const data = new Uint8Array(msg.data);
+							if (msg.type === 'encrypt') {
+								const res = await encryptBytes(data, msg.wrappedDEK || null, label);
+								const buf = res.ciphertext.buffer;
+								e.source.postMessage(
+									{ type: 'result', id: msg.id, ok: true, data: buf, wrappedDEK: res.wrappedDEK },
+									e.origin,
+									[buf]
+								);
+							} else {
+								const out = await decryptBytes(data, msg.wrappedDEK, label);
+								const buf = out.buffer;
+								e.source.postMessage({ type: 'result', id: msg.id, ok: true, data: buf }, e.origin, [buf]);
+							}
+						} catch (err) {
+							e.source.postMessage(
+								{ type: 'result', id: msg.id, ok: false, error: String(err && err.message) },
+								e.origin
+							);
+						}
+					}
+				});
+
+				(async function init() {
+					await sodium.ready;
+					b64 = sodium.base64_variants.ORIGINAL;
+					// Scope-key engine — ready before any unlock derives scopeMaster.
+					scopeKeysApi = window.__createScopeKeys(sodium);
+					// Announce readiness so the embedder knows it can send vault-init.
+					// targetOrigin '*' is safe: the message carries no secret.
+					window.parent.postMessage({ type: 'vault-loaded' }, '*');
+				})();
+			})();
+		</script>
+	</body>
+</html>

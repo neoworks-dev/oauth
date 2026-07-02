@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Create account — NeoWorks</title>
+    <link rel="stylesheet" href="/auth/static/neoworks.css" />
+  </head>
+  <body>
+    <div class="card">
+      <div class="logo">
+        <svg width="20" height="20" viewBox="0 0 100 100" fill="none" aria-hidden="true">
+          <circle cx="50" cy="50" r="40" stroke="currentColor" stroke-width="7" />
+          <path d="M 81 27 C 73 51, 55 69, 26 74" stroke="currentColor" stroke-width="7" stroke-linecap="round" />
+        </svg>
+        <span>NeoWorks</span>
+      </div>
+      <noscript>
+        <h1>JavaScript required</h1>
+        <p class="hint">
+          Creating an account generates your encryption keys directly in
+          your browser, so we never see them. Please enable JavaScript to
+          continue.
+        </p>
+      </noscript>
+      <form method="POST" action="/auth/signup" id="signup-form">
+        <input
+          type="hidden"
+          name="login_challenge"
+          value="{{.LoginChallenge}}"
+        />
+        <!-- AMK-wrapped key material, filled in by client-side script before submit -->
+        <input type="hidden" name="password_wrapped_amk" />
+        <input type="hidden" name="recovery_wrapped_amk" />
+        <input type="hidden" name="argon2_salt" />
+        <input type="hidden" name="argon2_time" />
+        <input type="hidden" name="argon2_memory" />
+        <input type="hidden" name="argon2_threads" />
+        <input type="hidden" name="argon2_keylen" />
+        <input type="hidden" name="device_public_key" />
+        <input type="hidden" name="device_wrapped_amk" />
+
+        <div id="step-account">
+          <h1>Create account</h1>
+          <p class="subtitle">
+            {{if .AppName}}Sign up to continue to {{.AppName}}{{else}}Get started
+            with NeoWorks{{end}}
+          </p>
+          {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+          <p class="error" id="client-error" style="display: none;"></p>
+          <div class="row">
+            <div class="field">
+              <label for="first_name">First name</label>
+              <input
+                type="text"
+                id="first_name"
+                name="first_name"
+                autocomplete="given-name"
+                autofocus
+                required
+              />
+            </div>
+            <div class="field">
+              <label for="last_name">Last name</label>
+              <input
+                type="text"
+                id="last_name"
+                name="last_name"
+                autocomplete="family-name"
+                required
+              />
+            </div>
+          </div>
+          <div class="field">
+            <label for="email">Email</label>
+            <input
+              type="email"
+              id="email"
+              name="email"
+              autocomplete="email"
+              required
+            />
+          </div>
+          <div class="field">
+            <label for="password">Password</label>
+            <input
+              type="password"
+              id="password"
+              name="password"
+              autocomplete="new-password"
+              required
+            />
+          </div>
+          <button type="button" id="continue-btn">Continue</button>
+          <p class="signin-link">
+            Already have an account?
+            <a href="/auth/login?login_challenge={{.LoginChallenge}}">Sign in</a>
+          </p>
+        </div>
+
+        <div id="step-code" hidden>
+          <h1>Verify your email</h1>
+          <p class="subtitle">
+            We sent a 6-digit code to <strong id="code-email"></strong>. Enter
+            it below to continue.
+          </p>
+          <div class="field">
+            <label for="code">Verification code</label>
+            <input
+              type="text"
+              id="code"
+              name="code"
+              inputmode="numeric"
+              autocomplete="one-time-code"
+            />
+          </div>
+          <button type="button" id="verify-code-btn">Verify email</button>
+        </div>
+
+        <div id="step-recovery" hidden>
+          <h1>Save your recovery key</h1>
+          <p class="hint">
+            This key is the only way to recover your account if you forget
+            your password. Store it somewhere safe — we cannot show it to
+            you again.
+          </p>
+          <div class="recovery-box recovery-words" id="recovery-key-display"></div>
+          <div class="recovery-actions">
+            <button type="button" class="copy-btn" id="copy-recovery-btn">Copy</button>
+            <button type="button" class="copy-btn" id="download-recovery-btn">Download</button>
+          </div>
+          <div class="checkbox-row">
+            <input type="checkbox" id="recovery-confirm" />
+            <label for="recovery-confirm">I've saved my recovery key in a safe place</label>
+          </div>
+          <button type="submit" id="submit-btn" disabled>Create account</button>
+        </div>
+      </form>
+    </div>
+
+    <script src="/auth/static/libsodium.js"></script>
+    <script src="/auth/static/libsodium-wrappers.js"></script>
+    <script src="/auth/static/recovery-words.js"></script>
+    <script>
+      (function () {
+        var form = document.getElementById("signup-form");
+        var stepAccount = document.getElementById("step-account");
+        var stepCode = document.getElementById("step-code");
+        var stepRecovery = document.getElementById("step-recovery");
+        var continueBtn = document.getElementById("continue-btn");
+        var verifyCodeBtn = document.getElementById("verify-code-btn");
+        var submitBtn = document.getElementById("submit-btn");
+        var clientError = document.getElementById("client-error");
+        var codeEmail = document.getElementById("code-email");
+        var codeInput = document.getElementById("code");
+        var recoveryDisplay = document.getElementById("recovery-key-display");
+        var recoveryConfirm = document.getElementById("recovery-confirm");
+        var copyBtn = document.getElementById("copy-recovery-btn");
+        var downloadBtn = document.getElementById("download-recovery-btn");
+        var currentRecoveryWords = [];
+
+        function showError(message) {
+          clientError.textContent = message;
+          clientError.style.display = "block";
+        }
+
+        // Generates the Account Master Key (AMK) and wraps it three ways:
+        // - password_wrapped_amk: unlocked with an Argon2id key derived from the password
+        // - recovery_wrapped_amk: unlocked with a one-time recovery key shown to the user
+        // - device_wrapped_amk: unlocked with this device's private key (kept in localStorage)
+        // The AMK itself is random, never derived from the password, and never sent to the server.
+        async function generateKeyMaterial(password) {
+          await sodium.ready;
+
+          var b64 = sodium.base64_variants.ORIGINAL;
+          var argon2Time = sodium.crypto_pwhash_OPSLIMIT_INTERACTIVE;
+          var argon2Memory = sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE;
+          var argon2Threads = 1; // libsodium's pwhash is single-threaded
+          var argon2Keylen = 32;
+
+          var amk = sodium.randombytes_buf(32);
+
+          var argon2Salt = sodium.randombytes_buf(sodium.crypto_pwhash_SALTBYTES);
+          var passwordKey = sodium.crypto_pwhash(
+            argon2Keylen,
+            password,
+            argon2Salt,
+            argon2Time,
+            argon2Memory,
+            sodium.crypto_pwhash_ALG_ARGON2ID13,
+          );
+          var passwordNonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
+          var passwordWrappedAMK = concatBytes(
+            passwordNonce,
+            sodium.crypto_secretbox_easy(amk, passwordNonce, passwordKey),
+          );
+          sodium.memzero(passwordKey);
+
+          var recoveryKey = sodium.randombytes_buf(32);
+          var recoveryNonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
+          var recoveryWrappedAMK = concatBytes(
+            recoveryNonce,
+            sodium.crypto_secretbox_easy(amk, recoveryNonce, recoveryKey),
+          );
+
+          var deviceKeyPair = sodium.crypto_box_keypair();
+          var deviceWrappedAMK = sodium.crypto_box_seal(amk, deviceKeyPair.publicKey);
+
+          sodium.memzero(amk);
+
+          return {
+            passwordWrappedAMK: sodium.to_base64(passwordWrappedAMK, b64),
+            recoveryWrappedAMK: sodium.to_base64(recoveryWrappedAMK, b64),
+            recoveryKeyWords: bytesToWords(recoveryKey),
+            argon2Salt: sodium.to_base64(argon2Salt, b64),
+            argon2Time: argon2Time,
+            argon2Memory: argon2Memory,
+            argon2Threads: argon2Threads,
+            argon2Keylen: argon2Keylen,
+            devicePublicKey: sodium.to_base64(deviceKeyPair.publicKey, b64),
+            devicePrivateKey: sodium.to_base64(deviceKeyPair.privateKey, b64),
+            deviceWrappedAMK: sodium.to_base64(deviceWrappedAMK, b64),
+          };
+        }
+
+        // Step 1 → 2: validate the form and email a verification code. No key
+        // material is generated yet — we only do that once the email is proven,
+        // so we never create keys for an address the user doesn't control.
+        continueBtn.addEventListener("click", async function () {
+          clientError.style.display = "none";
+
+          var firstName = form.first_name.value.trim();
+          var lastName = form.last_name.value.trim();
+          var email = form.email.value.trim();
+          var password = form.password.value;
+
+          if (!firstName || !lastName || !email || !password) {
+            showError("All fields are required");
+            return;
+          }
+          if (password.length < 8) {
+            showError("Password must be at least 8 characters");
+            return;
+          }
+
+          continueBtn.disabled = true;
+          continueBtn.textContent = "Sending code…";
+
+          try {
+            var res = await fetch("/auth/signup/send-code", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email: email }),
+            });
+            var data = await res.json().catch(function () {
+              return {};
+            });
+            if (!res.ok) {
+              showError(data.error || "Failed to send code — please try again");
+              return;
+            }
+          } catch (err) {
+            showError("Failed to send code — please try again");
+            return;
+          } finally {
+            continueBtn.disabled = false;
+            continueBtn.textContent = "Continue";
+          }
+
+          codeEmail.textContent = email;
+          stepAccount.hidden = true;
+          stepCode.hidden = false;
+          codeInput.focus();
+        });
+
+        // Step 2 → 3: verify the emailed code, then generate the AMK key material
+        // and reveal the recovery key for the user to save.
+        verifyCodeBtn.addEventListener("click", async function () {
+          clientError.style.display = "none";
+
+          var email = form.email.value.trim();
+          var code = codeInput.value.trim();
+          var password = form.password.value;
+
+          if (!code) {
+            showError("Enter the code we emailed you");
+            return;
+          }
+
+          verifyCodeBtn.disabled = true;
+          verifyCodeBtn.textContent = "Verifying…";
+
+          try {
+            var res = await fetch("/auth/signup/verify-code", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email: email, code: code }),
+            });
+            var data = await res.json().catch(function () {
+              return {};
+            });
+            if (!res.ok) {
+              showError(data.error || "Incorrect code");
+              return;
+            }
+          } catch (err) {
+            showError("Failed to verify code — please try again");
+            return;
+          } finally {
+            verifyCodeBtn.disabled = false;
+            verifyCodeBtn.textContent = "Verify email";
+          }
+
+          var keys;
+          try {
+            keys = await generateKeyMaterial(password);
+          } catch (err) {
+            showError("Failed to generate encryption keys — please try again");
+            return;
+          }
+
+          form.password_wrapped_amk.value = keys.passwordWrappedAMK;
+          form.recovery_wrapped_amk.value = keys.recoveryWrappedAMK;
+          form.argon2_salt.value = keys.argon2Salt;
+          form.argon2_time.value = String(keys.argon2Time);
+          form.argon2_memory.value = String(keys.argon2Memory);
+          form.argon2_threads.value = String(keys.argon2Threads);
+          form.argon2_keylen.value = String(keys.argon2Keylen);
+          form.device_public_key.value = keys.devicePublicKey;
+          form.device_wrapped_amk.value = keys.deviceWrappedAMK;
+
+          // The device private key never leaves this browser — needed later
+          // to unwrap the AMK from device_wrapped_amk when logging in again.
+          localStorage.setItem("nw_device_private_key", keys.devicePrivateKey);
+          localStorage.setItem("nw_device_public_key", keys.devicePublicKey);
+
+          currentRecoveryWords = keys.recoveryKeyWords;
+          renderRecoveryWords(recoveryDisplay, currentRecoveryWords);
+          stepCode.hidden = true;
+          stepRecovery.hidden = false;
+        });
+
+        recoveryConfirm.addEventListener("change", function () {
+          submitBtn.disabled = !recoveryConfirm.checked;
+        });
+
+        copyBtn.addEventListener("click", async function () {
+          try {
+            await navigator.clipboard.writeText(currentRecoveryWords.join(" "));
+            copyBtn.textContent = "Copied!";
+            setTimeout(function () {
+              copyBtn.textContent = "Copy";
+            }, 1500);
+          } catch (err) {
+            // Clipboard API unavailable — user can still select & copy manually.
+          }
+        });
+
+        downloadBtn.addEventListener("click", function () {
+          downloadRecoveryKey(currentRecoveryWords);
+        });
+      })();
+    </script>
+  </body>
+</html>

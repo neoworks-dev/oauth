@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>NeoWorks session</title>
+  </head>
+  <body>
+    <script>
+      (function () {
+        var parentOrigin = {{.ParentOriginJSON}};
+
+        function send(message) {
+          window.parent.postMessage(
+            Object.assign({ source: 'neoworks-signin' }, message),
+            parentOrigin
+          );
+        }
+
+        async function probe() {
+          // Same-origin to this page, so the sso_session cookie is first-party
+          // here. In browsers that block third-party cookies the cookie is
+          // partitioned away unless storage access was granted — best-effort.
+          try {
+            if (document.hasStorageAccess && !(await document.hasStorageAccess())) {
+              try {
+                await document.requestStorageAccess();
+              } catch (err) {
+                // No storage access and no gesture — fall through; the fetch
+                // may still succeed where third-party cookies are allowed.
+              }
+            }
+            var res = await fetch('/session', { credentials: 'same-origin' });
+            var data = await res.json();
+            send({
+              authenticated: !!data.authenticated,
+              email: data.email || '',
+              name: data.name || ''
+            });
+          } catch (err) {
+            send({ authenticated: false });
+          }
+        }
+
+        probe();
+      })();
+    </script>
+  </body>
+</html>

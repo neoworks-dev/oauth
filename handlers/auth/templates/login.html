@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sign in — NeoWorks</title>
+    <link rel="stylesheet" href="/auth/static/neoworks.css" />
+  </head>
+  <body>
+    <div class="card split">
+      <div class="logo page-logo">
+        <svg width="20" height="20" viewBox="0 0 100 100" fill="none" aria-hidden="true">
+          <circle cx="50" cy="50" r="40" stroke="currentColor" stroke-width="7" />
+          <path d="M 81 27 C 73 51, 55 69, 26 74" stroke="currentColor" stroke-width="7" stroke-linecap="round" />
+        </svg>
+        <span>NeoWorks</span>
+      </div>
+      <h1>Sign in</h1>
+      <p class="subtitle">
+        {{if .AppName}}{{.AppName}} is requesting access{{else}}Welcome
+        back{{end}}
+      </p>
+
+      {{if .Notice}}<p class="success">{{.Notice}}</p>{{end}}
+      {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+
+      <div class="login-split">
+        <form class="login-form" method="POST" action="/auth/login">
+          <input
+            type="hidden"
+            name="login_challenge"
+            value="{{.LoginChallenge}}"
+          />
+
+          <div class="field">
+            <label for="email">Email</label>
+            <input
+              type="email"
+              id="email"
+              name="email"
+              autocomplete="email"
+              autofocus
+              required
+            />
+          </div>
+
+          <div class="field">
+            <label for="password">Password</label>
+            <input
+              type="password"
+              id="password"
+              name="password"
+              autocomplete="current-password"
+              required
+            />
+          </div>
+          <a
+            href="/auth/forgot?login_challenge={{.LoginChallenge}}"
+            class="signin-link"
+          >
+            Forgot your password?
+          </a>
+          <a
+            href="/auth/signup?login_challenge={{.LoginChallenge}}"
+            class="signin-link"
+          >
+            Don't have an account? Sign up
+          </a>
+
+          <button type="submit">Continue</button>
+        </form>
+
+        <div class="login-split-divider" aria-hidden="true"></div>
+
+        <div class="login-alt">
+          <p class="approve-option-title">Sign in with another device</p>
+          {{if .SigninQR}}
+          <img class="approve-qr" src="{{.SigninQR}}" alt="Sign-in QR code" width="160" height="160" />
+          {{else}}
+          <p class="approve-status">QR unavailable.</p>
+          {{end}}
+          <p class="approve-option-hint">
+            Scan with the NeoWorks Authenticator, or send a request to your
+            signed-in devices.
+          </p>
+          <button type="button" class="ghost" id="approve-phone">
+            Send request
+          </button>
+          <p class="approve-status" id="approve-status"></p>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        const loginChallenge = "{{.LoginChallenge}}";
+        const btn = document.getElementById("approve-phone");
+        const statusEl = document.getElementById("approve-status");
+        const emailInput = document.getElementById("email");
+        let polling = false;
+
+        function setStatus(text) {
+          statusEl.textContent = text;
+        }
+
+        async function poll() {
+          const res = await fetch(
+            "/auth/login/approve-status?login_challenge=" +
+              encodeURIComponent(loginChallenge),
+          );
+          if (res.status === 202) {
+            setTimeout(poll, 2000);
+            return;
+          }
+          const data = await res.json().catch(() => ({}));
+          if (data.status === "approved") {
+            setStatus("Approved — signing you in…");
+            window.location =
+              "/auth/login/complete?login_challenge=" +
+              encodeURIComponent(loginChallenge);
+            return;
+          }
+          if (data.status === "denied") {
+            setStatus("Request denied on your device.");
+            btn.disabled = false;
+            polling = false;
+            return;
+          }
+          setTimeout(poll, 2000);
+        }
+
+        // Poll from page load so an approval from either path — a scanned QR or a
+        // pushed request — signs the user in without extra clicks.
+        function ensurePolling() {
+          if (polling) return;
+          polling = true;
+          poll();
+        }
+
+        btn.addEventListener("click", async function () {
+          const email = (emailInput.value || "").trim();
+          if (!email) {
+            setStatus("Enter your email first.");
+            emailInput.focus();
+            return;
+          }
+          btn.disabled = true;
+          setStatus("Sent a request to your devices. Waiting for approval…");
+
+          await fetch("/auth/login/approve-request", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: email, login_challenge: loginChallenge }),
+          });
+          ensurePolling();
+        });
+
+        ensurePolling();
+      })();
+    </script>
+  </body>
+</html>

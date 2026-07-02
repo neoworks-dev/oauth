@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Reset password — NeoWorks</title>
+    <link rel="stylesheet" href="/auth/static/neoworks.css" />
+  </head>
+  <body>
+    <div class="card">
+      <div class="logo">
+        <svg width="20" height="20" viewBox="0 0 100 100" fill="none" aria-hidden="true">
+          <circle cx="50" cy="50" r="40" stroke="currentColor" stroke-width="7" />
+          <path d="M 81 27 C 73 51, 55 69, 26 74" stroke="currentColor" stroke-width="7" stroke-linecap="round" />
+        </svg>
+        <span>NeoWorks</span>
+      </div>
+
+      <noscript>
+        <h1>JavaScript required</h1>
+        <p class="hint">
+          Resetting your password unwraps your encryption keys directly in
+          your browser, so we never see them. Please enable JavaScript to
+          continue.
+        </p>
+      </noscript>
+
+      <p class="error" id="client-error" style="display: none;"></p>
+
+      <!-- Step 1: verify the emailed code -->
+      <div id="step-code">
+        <h1>Enter your code</h1>
+        <p class="subtitle">
+          If an account exists for <strong>{{.Email}}</strong>, we sent it a
+          6-digit code. Enter it below.
+        </p>
+        <div class="field">
+          <label for="email">Email</label>
+          <input
+            type="email"
+            id="email"
+            name="email"
+            autocomplete="email"
+            value="{{.Email}}"
+            required
+          />
+        </div>
+        <div class="field">
+          <label for="code">Verification code</label>
+          <input
+            type="text"
+            id="code"
+            name="code"
+            inputmode="numeric"
+            autocomplete="one-time-code"
+            autofocus
+            required
+          />
+        </div>
+        <button type="button" id="verify-code-btn">Continue</button>
+        <a
+          href="/auth/login?login_challenge={{.LoginChallenge}}"
+          class="signin-link"
+        >
+          Back to sign in
+        </a>
+      </div>
+
+      <!-- Step 2: recovery phrase + new password -->
+      <div id="step-recovery" hidden>
+        <h1>Recovery key &amp; new password</h1>
+        <p class="hint">
+          Enter the recovery key you saved when you created your account. It's
+          the only way to unlock your encrypted data. Then choose a new
+          password.
+        </p>
+        <div class="field">
+          <label for="recovery-phrase">Recovery key</label>
+          <textarea
+            id="recovery-phrase"
+            rows="4"
+            placeholder="word1 word2 word3 …"
+          ></textarea>
+        </div>
+        <div class="field">
+          <label for="password">New password</label>
+          <input
+            type="password"
+            id="password"
+            autocomplete="new-password"
+            required
+          />
+        </div>
+        <div class="field">
+          <label for="password-confirm">Confirm new password</label>
+          <input
+            type="password"
+            id="password-confirm"
+            autocomplete="new-password"
+            required
+          />
+        </div>
+        <button type="button" id="reset-btn">Reset password</button>
+      </div>
+    </div>
+
+    <script src="/auth/static/libsodium.js"></script>
+    <script src="/auth/static/libsodium-wrappers.js"></script>
+    <script src="/auth/static/recovery-words.js"></script>
+    <script>
+      (function () {
+        var loginChallenge = "{{.LoginChallenge}}";
+        var clientError = document.getElementById("client-error");
+        var stepCode = document.getElementById("step-code");
+        var stepRecovery = document.getElementById("step-recovery");
+        var emailInput = document.getElementById("email");
+        var codeInput = document.getElementById("code");
+        var verifyCodeBtn = document.getElementById("verify-code-btn");
+        var resetBtn = document.getElementById("reset-btn");
+        var recoveryInput = document.getElementById("recovery-phrase");
+        var passwordInput = document.getElementById("password");
+        var passwordConfirmInput = document.getElementById("password-confirm");
+
+        // Set after the code is verified — released by the server so the browser
+        // can unwrap the AMK with the recovery key, plus a one-time reset token.
+        var recoveryWrappedAMK = "";
+        var resetToken = "";
+
+        function showError(message) {
+          clientError.textContent = message;
+          clientError.style.display = "block";
+        }
+
+        function clearError() {
+          clientError.style.display = "none";
+        }
+
+        verifyCodeBtn.addEventListener("click", async function () {
+          clearError();
+          var email = emailInput.value.trim();
+          var code = codeInput.value.trim();
+          if (!email || !code) {
+            showError("Enter your email and the code we sent you.");
+            return;
+          }
+
+          verifyCodeBtn.disabled = true;
+          verifyCodeBtn.textContent = "Verifying…";
+
+          try {
+            var res = await fetch("/auth/reset/verify-code", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email: email, code: code }),
+            });
+            var data = await res.json().catch(function () {
+              return {};
+            });
+            if (!res.ok) {
+              showError(data.error || "Incorrect code.");
+              return;
+            }
+            recoveryWrappedAMK = data.recovery_wrapped_amk;
+            resetToken = data.reset_token;
+            stepCode.hidden = true;
+            stepRecovery.hidden = false;
+          } catch (err) {
+            showError("Something went wrong — please try again.");
+          } finally {
+            verifyCodeBtn.disabled = false;
+            verifyCodeBtn.textContent = "Continue";
+          }
+        });
+
+        // Unwraps the AMK with the recovery key, then re-wraps it under a key
+        // derived from the new password. The plaintext AMK never leaves the page.
+        async function rewrapAMK(recoveryWords, password) {
+          await sodium.ready;
+          var b64 = sodium.base64_variants.ORIGINAL;
+
+          var recoveryKey = wordsToBytes(recoveryWords);
+          if (recoveryKey.length !== 32) {
+            throw new Error("Recovery key must be 32 words.");
+          }
+
+          var wrapped = sodium.from_base64(recoveryWrappedAMK, b64);
+          var nonceBytes = sodium.crypto_secretbox_NONCEBYTES;
+          var recoveryNonce = wrapped.slice(0, nonceBytes);
+          var recoveryCipher = wrapped.slice(nonceBytes);
+          var amk = sodium.crypto_secretbox_open_easy(
+            recoveryCipher,
+            recoveryNonce,
+            recoveryKey,
+          );
+
+          var argon2Time = sodium.crypto_pwhash_OPSLIMIT_INTERACTIVE;
+          var argon2Memory = sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE;
+          var argon2Threads = 1; // libsodium's pwhash is single-threaded
+          var argon2Keylen = 32;
+
+          var argon2Salt = sodium.randombytes_buf(sodium.crypto_pwhash_SALTBYTES);
+          var passwordKey = sodium.crypto_pwhash(
+            argon2Keylen,
+            password,
+            argon2Salt,
+            argon2Time,
+            argon2Memory,
+            sodium.crypto_pwhash_ALG_ARGON2ID13,
+          );
+          var passwordNonce = sodium.randombytes_buf(nonceBytes);
+          var passwordWrappedAMK = concatBytes(
+            passwordNonce,
+            sodium.crypto_secretbox_easy(amk, passwordNonce, passwordKey),
+          );
+          sodium.memzero(passwordKey);
+          sodium.memzero(amk);
+
+          return {
+            passwordWrappedAMK: sodium.to_base64(passwordWrappedAMK, b64),
+            argon2Salt: sodium.to_base64(argon2Salt, b64),
+            argon2Time: argon2Time,
+            argon2Memory: argon2Memory,
+            argon2Threads: argon2Threads,
+            argon2Keylen: argon2Keylen,
+          };
+        }
+
+        resetBtn.addEventListener("click", async function () {
+          clearError();
+          var password = passwordInput.value;
+          var passwordConfirm = passwordConfirmInput.value;
+          var recoveryWords = recoveryInput.value
+            .trim()
+            .split(/\s+/)
+            .filter(Boolean);
+
+          if (recoveryWords.length === 0) {
+            showError("Enter your recovery key.");
+            return;
+          }
+          if (password.length < 8) {
+            showError("Password must be at least 8 characters.");
+            return;
+          }
+          if (password !== passwordConfirm) {
+            showError("Passwords don't match.");
+            return;
+          }
+
+          resetBtn.disabled = true;
+          resetBtn.textContent = "Resetting…";
+
+          var wrapped;
+          try {
+            wrapped = await rewrapAMK(recoveryWords, password);
+          } catch (err) {
+            showError(
+              "Couldn't unlock your account — check your recovery key and try again.",
+            );
+            resetBtn.disabled = false;
+            resetBtn.textContent = "Reset password";
+            return;
+          }
+
+          try {
+            var res = await fetch("/auth/reset", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                reset_token: resetToken,
+                password: password,
+                password_wrapped_amk: wrapped.passwordWrappedAMK,
+                argon2_salt: wrapped.argon2Salt,
+                argon2_time: wrapped.argon2Time,
+                argon2_memory: wrapped.argon2Memory,
+                argon2_threads: wrapped.argon2Threads,
+                argon2_keylen: wrapped.argon2Keylen,
+              }),
+            });
+            var data = await res.json().catch(function () {
+              return {};
+            });
+            if (!res.ok) {
+              showError(data.error || "Failed to reset password.");
+              resetBtn.disabled = false;
+              resetBtn.textContent = "Reset password";
+              return;
+            }
+            window.location =
+              "/auth/login?reset=success&login_challenge=" +
+              encodeURIComponent(loginChallenge);
+          } catch (err) {
+            showError("Something went wrong — please try again.");
+            resetBtn.disabled = false;
+            resetBtn.textContent = "Reset password";
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "name": "oauth-tests",
+  "private": true,
+  "scripts": {
+    "test": "bun test"
+  },
+  "dependencies": {
+    "jose": "^5.10.0"
+  }
+}

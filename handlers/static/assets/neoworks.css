@@ -1,0 +1,739 @@
+/*
+ * NeoWorks OAuth — shared styles for the standalone auth pages
+ * (login, signup, scopes, consent, account security, error, vault).
+ *
+ * Ported from the design system (packages/ui/src/styles/tokens.css) so these
+ * server-rendered pages match the rest of NeoWorks. Self-hosted, no CDN: the
+ * auth pages handle passwords and Account Master Keys, so every asset (incl.
+ * the Geist font) is served first-party.
+ */
+
+/* ── Geist (self-hosted, latin subset) ─────────────────────────── */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/auth/static/geist-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/auth/static/geist-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/auth/static/geist-600.woff2') format('woff2');
+}
+
+/* ── Design tokens — dark (default) ────────────────────────────── */
+:root {
+  color-scheme: dark;
+
+  --bg: #000000;
+  --surface: #141416;
+  --surface-raised: #1c1c1f;
+  --surface-hover: #1f1f23;
+  --surface-input: #0e0e10;
+
+  --border: #262626;
+  --border-strong: #3f3f46;
+  --border-faint: rgba(255, 255, 255, 0.06);
+
+  --text: #fafafa;
+  --text-muted: #a1a1aa;
+  --text-dim: #71717a;
+  --text-faint: #52525b;
+
+  --primary: #fafafa;
+  --primary-hover: #e4e4e7;
+  --primary-fg: #0b0b0d;
+
+  --ctx-red: #f87171;
+  --ctx-green: #4ade80;
+
+  --font-sans: 'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Roboto Mono', Menlo, Consolas, monospace;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55);
+}
+
+/* ── Design tokens — light (follows OS setting) ────────────────── */
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+
+    --bg: #f4f4f5;
+    --surface: #ffffff;
+    --surface-raised: #f9f9fa;
+    --surface-hover: #e4e4e7;
+    --surface-input: #ffffff;
+
+    --border: #d4d4d8;
+    --border-strong: #a1a1aa;
+    --border-faint: rgba(0, 0, 0, 0.08);
+
+    --text: #09090b;
+    --text-muted: #3f3f46;
+    --text-dim: #52525b;
+    --text-faint: #71717a;
+
+    --primary: #09090b;
+    --primary-hover: #3f3f46;
+    --primary-fg: #ffffff;
+
+    --ctx-red: #dc2626;
+    --ctx-green: #16a34a;
+
+    --shadow-lg: 0 12px 32px rgba(9, 9, 11, 0.12);
+  }
+}
+
+/* ── Reset + base ──────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100svh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Card + headings ───────────────────────────────────────────── */
+.card {
+  width: 100%;
+  max-width: 380px;
+  margin: 1.5rem;
+  padding: 2.5rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+}
+.card.wide {
+  max-width: 440px;
+}
+.card.split {
+  max-width: 640px;
+}
+
+/* Floating page logo (login): on wide screens it's pinned to the page's
+   top-left so the card stays short; on mobile it falls back to a normal
+   in-card header (the card goes full-width, so a fixed logo would overlap it). */
+@media (min-width: 561px) {
+  .page-logo {
+    position: fixed;
+    top: 1.75rem;
+    left: 2rem;
+    margin-bottom: 0;
+  }
+}
+
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin-bottom: 2rem;
+  color: var(--text);
+}
+.logo svg {
+  flex-shrink: 0;
+}
+
+h1 {
+  font-size: 1.5rem;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  margin-bottom: 0.5rem;
+}
+
+h2 {
+  font-size: 1rem;
+  font-weight: 500;
+  margin: 2rem 0 0.75rem;
+}
+
+.subtitle {
+  font-size: 0.875rem;
+  color: var(--text-dim);
+  margin-bottom: 2rem;
+  line-height: 1.5;
+}
+.subtitle strong {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.hint {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  margin-bottom: 1rem;
+  line-height: 1.5;
+}
+
+/* ── Fields + inputs ───────────────────────────────────────────── */
+.field {
+  margin-bottom: 1rem;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+label {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-bottom: 0.4rem;
+}
+
+input[type='text'],
+input[type='email'],
+input[type='password'],
+textarea {
+  width: 100%;
+  padding: 0.65rem 0.875rem;
+  background: var(--surface-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 0.9375rem;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+textarea {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  resize: vertical;
+}
+
+input:focus,
+textarea:focus {
+  border-color: var(--border-strong);
+  box-shadow: 0 0 0 3px var(--border-faint);
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.checkbox-row input[type='checkbox'] {
+  margin-top: 0.2rem;
+  flex-shrink: 0;
+  accent-color: var(--primary);
+}
+.checkbox-row label {
+  margin-bottom: 0;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+/* ── Status messages ───────────────────────────────────────────── */
+.error,
+.err {
+  font-size: 0.8rem;
+  color: var(--ctx-red);
+  margin-bottom: 1rem;
+}
+.err {
+  margin-bottom: 0;
+  margin-top: 0.75rem;
+  min-height: 1rem;
+}
+.success {
+  font-size: 0.8rem;
+  color: var(--ctx-green);
+  margin-bottom: 1rem;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────── */
+button {
+  width: 100%;
+  padding: 0.7rem;
+  background: var(--primary);
+  color: var(--primary-fg);
+  border: none;
+  border-radius: var(--radius-md);
+  font-family: var(--font-sans);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  cursor: pointer;
+  margin-top: 0.5rem;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+}
+button:hover {
+  background: var(--primary-hover);
+}
+button:active {
+  opacity: 0.85;
+}
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Outline variants — .ghost (login) and .secondary (consent) are equivalent. */
+button.ghost,
+button.secondary {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+button.ghost:hover,
+button.secondary:hover {
+  background: var(--surface-hover);
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+.actions button {
+  flex: 1;
+}
+
+/* ── Links ─────────────────────────────────────────────────────── */
+.signin-link {
+  display: block;
+  margin-top: 1.5rem;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  text-align: center;
+  text-decoration: none;
+}
+.signin-link a {
+  color: var(--text);
+  text-decoration: none;
+}
+.signin-link a:hover {
+  text-decoration: underline;
+}
+
+/* ── Divider (login: "or") ─────────────────────────────────────── */
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1.25rem 0;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+}
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.approve-status {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  text-align: center;
+  margin-top: 0.875rem;
+  min-height: 1rem;
+}
+
+/* ── Login split (email/password on the left, QR + push on the right) ── */
+.login-split {
+  display: flex;
+  align-items: stretch;
+  gap: 1.5rem;
+}
+.login-form {
+  flex: 1;
+  min-width: 0;
+}
+.login-split-divider {
+  width: 1px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+.login-alt {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.approve-option-title {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 0.875rem;
+}
+.approve-option-hint {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  margin: 0.875rem 0;
+}
+.approve-qr {
+  border-radius: var(--radius-md);
+  background: #fff;
+  padding: 0.5rem;
+}
+/* Pin the push button to the bottom so it sits under the QR regardless of height. */
+.login-alt .ghost {
+  margin-top: auto;
+}
+
+@media (max-width: 560px) {
+  .card.split {
+    padding: 1.5rem;
+  }
+  .page-logo {
+    margin-bottom: 1.25rem;
+  }
+  .card.split .subtitle {
+    margin-bottom: 1rem;
+  }
+  .card.split .field {
+    margin-bottom: 0.75rem;
+  }
+  .card.split .signin-link {
+    margin-top: 0.5rem;
+  }
+  .login-split {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .login-split-divider {
+    width: auto;
+    height: 1px;
+  }
+  .login-alt .ghost {
+    margin-top: 0;
+  }
+  .approve-option-title {
+    margin-bottom: 0.5rem;
+  }
+  .approve-option-hint {
+    margin: 0.5rem 0;
+  }
+  .approve-qr {
+    width: 120px;
+    height: 120px;
+  }
+}
+
+/* ── Scope list (scopes + consent) ─────────────────────────────── */
+.scopes-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-bottom: 0.75rem;
+}
+.scopes {
+  list-style: none;
+  margin-bottom: 1.5rem;
+}
+.scopes li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  padding: 0.625rem 0;
+  font-size: 0.875rem;
+  color: var(--text);
+  border-bottom: 1px solid var(--border-faint);
+}
+.scopes li:last-child {
+  border-bottom: none;
+}
+.check {
+  color: var(--text-dim);
+  flex-shrink: 0;
+  margin-top: 0.125rem;
+}
+.scope-desc {
+  display: block;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  margin-top: 0.125rem;
+}
+
+/* ── Consent: signed-in user chip + footer ─────────────────────── */
+.user {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.65rem 0.875rem;
+  background: var(--surface-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin-bottom: 1.5rem;
+  font-size: 0.875rem;
+}
+.avatar {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: var(--radius-full);
+  background: var(--surface-raised);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.user-email {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Pushed to the right edge of the consent .user row. */
+.switch-account {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  text-decoration: none;
+}
+.switch-account:hover {
+  color: var(--text);
+}
+.footer {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  margin-top: 1.5rem;
+  text-align: center;
+  line-height: 1.5;
+}
+.footer a {
+  color: var(--text-muted);
+  text-decoration: none;
+}
+.footer a:hover {
+  color: var(--text);
+}
+
+/* ── Account picker (select-account) ───────────────────────────── */
+.account-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.account-list form {
+  margin: 0;
+}
+/* Row buttons override the default filled button to read as list rows. */
+button.account-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.65rem 0.875rem;
+  text-align: left;
+  background: var(--surface-input);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+button.account-row:hover {
+  background: var(--surface-hover);
+}
+.account-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.account-name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.account-email {
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.account-add .avatar {
+  font-size: 1rem;
+}
+
+/* ── Recovery key display (signup + security) ──────────────────── */
+.recovery-box {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  background: var(--surface-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.875rem;
+  margin-bottom: 0.75rem;
+}
+.recovery-words {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.3rem 1rem;
+}
+.word-index {
+  color: var(--text-faint);
+  margin-right: 0.4rem;
+}
+.recovery-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+/* Small secondary buttons used inline (copy/download). */
+.copy-btn {
+  width: auto;
+  flex: 1;
+  padding: 0.4rem 0.875rem;
+  background: var(--surface-input);
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-size: 0.8rem;
+  font-weight: 400;
+  margin: 0;
+}
+.copy-btn:hover {
+  background: var(--surface-hover);
+}
+
+/* ── Mono code blocks (error chip + security pairing payload) ──── */
+.code {
+  display: inline-block;
+  padding: 0.3rem 0.6rem;
+  background: var(--surface-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--ctx-red);
+  margin-bottom: 1.5rem;
+}
+.description {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.code-box {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  background: var(--surface-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.875rem;
+  margin: 0.75rem 0;
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+/* ── Security: unlock tabs + device list ───────────────────────── */
+.unlock-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+.tab-btn {
+  flex: 1;
+  width: auto;
+  padding: 0.5rem;
+  background: var(--surface-input);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  font-size: 0.8125rem;
+  font-weight: 400;
+  margin: 0;
+}
+.tab-btn:hover {
+  background: var(--surface-hover);
+}
+.tab-btn.active {
+  background: var(--primary);
+  color: var(--primary-fg);
+  border-color: var(--primary);
+}
+.tab-panel[hidden] {
+  display: none;
+}
+
+.device-list {
+  list-style: none;
+  margin-bottom: 0.5rem;
+}
+.device-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.875rem;
+}
+.device-item:last-child {
+  border-bottom: none;
+}
+.device-name {
+  font-weight: 500;
+}
+.device-badge {
+  font-size: 0.7rem;
+  color: var(--primary-fg);
+  background: var(--primary);
+  border-radius: 4px;
+  padding: 0.1rem 0.4rem;
+}
+.device-meta {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
+
+/* ── Vault sandbox specifics ───────────────────────────────────── */
+.footnote {
+  margin-top: 1.5rem;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+.hidden {
+  display: none;
+}
+
+noscript .card {
+  text-align: center;
+}

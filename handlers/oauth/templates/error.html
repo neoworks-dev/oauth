@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Error — NeoWorks</title>
+    <link rel="stylesheet" href="/auth/static/neoworks.css" />
+  </head>
+  <body>
+    <div class="card">
+      <div class="logo">
+        <svg width="20" height="20" viewBox="0 0 100 100" fill="none" aria-hidden="true">
+          <circle cx="50" cy="50" r="40" stroke="currentColor" stroke-width="7" />
+          <path d="M 81 27 C 73 51, 55 69, 26 74" stroke="currentColor" stroke-width="7" stroke-linecap="round" />
+        </svg>
+        <span>NeoWorks</span>
+      </div>
+      <h1>Something went wrong</h1>
+      <p class="subtitle">We couldn't complete the authorization request.</p>
+
+      <div class="code">{{.Error}}</div>
+
+      {{if .Description}}<p class="description">{{.Description}}</p>{{end}}
+    </div>
+  </body>
+</html>

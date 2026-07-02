@@ -1,0 +1,563 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Security & Devices — NeoWorks</title>
+    <link rel="stylesheet" href="/auth/static/neoworks.css" />
+  </head>
+  <body>
+    <div class="card wide">
+      <div class="logo">
+        <svg width="20" height="20" viewBox="0 0 100 100" fill="none" aria-hidden="true">
+          <circle cx="50" cy="50" r="40" stroke="currentColor" stroke-width="7" />
+          <path d="M 81 27 C 73 51, 55 69, 26 74" stroke="currentColor" stroke-width="7" stroke-linecap="round" />
+        </svg>
+        <span>NeoWorks</span>
+      </div>
+      <noscript>
+        <h1>JavaScript required</h1>
+        <p class="hint">
+          Managing your encryption keys happens directly in your browser, so
+          we never see them. Please enable JavaScript to continue.
+        </p>
+      </noscript>
+
+      <div id="step-loading">
+        <h1>Security & Devices</h1>
+        <p class="hint">Checking this device&hellip;</p>
+      </div>
+
+      <div id="step-locked" hidden>
+        <h1>Unlock your account</h1>
+        <p class="subtitle">
+          This browser isn't registered as one of your devices yet. Verify
+          it's you to continue.
+        </p>
+        <p class="error" id="locked-error" style="display: none;"></p>
+
+        <div class="unlock-tabs">
+          <button type="button" class="tab-btn active" data-tab="password">Password</button>
+          <button type="button" class="tab-btn" data-tab="recovery">Recovery words</button>
+          <button type="button" class="tab-btn" data-tab="pairing">Another device</button>
+        </div>
+
+        <div id="tab-password" class="tab-panel">
+          <div class="field">
+            <label for="unlock-password">Password</label>
+            <input type="password" id="unlock-password" autocomplete="current-password" />
+          </div>
+          <button type="button" id="unlock-password-btn">Unlock</button>
+        </div>
+
+        <div id="tab-recovery" class="tab-panel" hidden>
+          <p class="hint">
+            Enter your 32-word recovery key, separated by spaces. Using it
+            will generate a new recovery key — the old one stops working.
+          </p>
+          <div class="field">
+            <label for="unlock-recovery">Recovery words</label>
+            <textarea id="unlock-recovery" rows="4" placeholder="word1 word2 word3 ..."></textarea>
+          </div>
+          <button type="button" id="unlock-recovery-btn">Unlock</button>
+        </div>
+
+        <div id="tab-pairing" class="tab-panel" hidden>
+          <p class="hint">
+            Generate a pairing code, then paste it into the
+            &ldquo;Add a device&rdquo; form on a device that's already
+            unlocked.
+          </p>
+          <button type="button" id="generate-pairing-btn">Generate pairing code</button>
+          <div class="code-box" id="pairing-code-display" hidden></div>
+          <p class="hint" id="pairing-status" hidden>Waiting for approval&hellip;</p>
+        </div>
+      </div>
+
+      <div id="step-recovery-rotated" hidden>
+        <h1>Save your new recovery key</h1>
+        <p class="hint">
+          Your previous recovery key has now been used and no longer works.
+          Store this new one somewhere safe — we cannot show it to you again.
+        </p>
+        <div class="recovery-box recovery-words" id="new-recovery-display"></div>
+        <div class="recovery-actions">
+          <button type="button" class="copy-btn" id="copy-new-recovery-btn">Copy</button>
+          <button type="button" class="copy-btn" id="download-new-recovery-btn">Download</button>
+        </div>
+        <button type="button" id="recovery-rotated-continue-btn">Continue</button>
+      </div>
+
+      <div id="step-unlocked" hidden>
+        <h1>Security & Devices</h1>
+        <p class="subtitle">{{.Email}}</p>
+
+        <h2>Devices</h2>
+        <ul class="device-list" id="device-list"></ul>
+
+        <h2>Add a device</h2>
+        <p class="hint">
+          Paste the pairing code shown on the new device's &ldquo;Another
+          device&rdquo; tab.
+        </p>
+        <div class="field">
+          <textarea id="approve-pairing-input" rows="3" placeholder="Paste pairing code"></textarea>
+        </div>
+        <p class="error" id="approve-error" style="display: none;"></p>
+        <p class="success" id="approve-success" style="display: none;"></p>
+        <button type="button" id="approve-pairing-btn">Approve device</button>
+
+        <h2>Recovery key</h2>
+        <p class="hint">
+          If you ever lose access to all of your devices, your recovery key
+          is the only way back into your account.
+        </p>
+        <button type="button" id="rotate-recovery-btn">Generate new recovery key</button>
+      </div>
+    </div>
+
+    <script src="/auth/static/libsodium.js"></script>
+    <script src="/auth/static/libsodium-wrappers.js"></script>
+    <script src="/auth/static/recovery-words.js"></script>
+    <script>
+      (function () {
+        var email = "{{.Email}}";
+        var b64;
+
+        var stepLoading = document.getElementById("step-loading");
+        var stepLocked = document.getElementById("step-locked");
+        var stepRecoveryRotated = document.getElementById("step-recovery-rotated");
+        var stepUnlocked = document.getElementById("step-unlocked");
+
+        var lockedError = document.getElementById("locked-error");
+        var tabButtons = document.querySelectorAll(".tab-btn");
+        var tabPanels = document.querySelectorAll(".tab-panel");
+
+        var unlockPasswordInput = document.getElementById("unlock-password");
+        var unlockPasswordBtn = document.getElementById("unlock-password-btn");
+        var unlockRecoveryInput = document.getElementById("unlock-recovery");
+        var unlockRecoveryBtn = document.getElementById("unlock-recovery-btn");
+
+        var generatePairingBtn = document.getElementById("generate-pairing-btn");
+        var pairingCodeDisplay = document.getElementById("pairing-code-display");
+        var pairingStatus = document.getElementById("pairing-status");
+        var pairingPollHandle = null;
+
+        var newRecoveryDisplay = document.getElementById("new-recovery-display");
+        var copyNewRecoveryBtn = document.getElementById("copy-new-recovery-btn");
+        var downloadNewRecoveryBtn = document.getElementById("download-new-recovery-btn");
+        var recoveryRotatedContinueBtn = document.getElementById("recovery-rotated-continue-btn");
+
+        var deviceList = document.getElementById("device-list");
+        var approvePairingInput = document.getElementById("approve-pairing-input");
+        var approvePairingBtn = document.getElementById("approve-pairing-btn");
+        var approveError = document.getElementById("approve-error");
+        var approveSuccess = document.getElementById("approve-success");
+        var rotateRecoveryBtn = document.getElementById("rotate-recovery-btn");
+
+        var currentAMK = null;
+        var currentDevicePublicKey = null;
+
+        function showLockedError(message) {
+          lockedError.textContent = message;
+          lockedError.style.display = "block";
+        }
+
+        function defaultDeviceName() {
+          return (navigator.platform || "Browser") + " — " + email;
+        }
+
+        // ── Step transitions ──────────────────────────────────────────────────
+
+        function showLocked() {
+          stepLoading.hidden = true;
+          stepLocked.hidden = false;
+        }
+
+        function showUnlocked(amk, devicePublicKey) {
+          currentAMK = amk;
+          currentDevicePublicKey = devicePublicKey;
+          stepLoading.hidden = true;
+          stepLocked.hidden = true;
+          stepRecoveryRotated.hidden = true;
+          stepUnlocked.hidden = false;
+          loadDevices(devicePublicKey);
+        }
+
+        function showRecoveryRotated(words, amk, devicePublicKey) {
+          stepLoading.hidden = true;
+          stepLocked.hidden = true;
+          stepUnlocked.hidden = true;
+          renderRecoveryWords(newRecoveryDisplay, words);
+
+          recoveryRotatedContinueBtn.onclick = function () {
+            showUnlocked(amk, devicePublicKey);
+          };
+          copyNewRecoveryBtn.onclick = function () {
+            copyWords(words, copyNewRecoveryBtn);
+          };
+          downloadNewRecoveryBtn.onclick = function () {
+            downloadRecoveryKey(words);
+          };
+
+          stepRecoveryRotated.hidden = false;
+        }
+
+        function copyWords(words, button) {
+          navigator.clipboard.writeText(words.join(" ")).then(function () {
+            button.textContent = "Copied!";
+            setTimeout(function () {
+              button.textContent = "Copy";
+            }, 1500);
+          }, function () {
+            // Clipboard API unavailable — user can still select & copy manually.
+          });
+        }
+
+        // ── Returning-device auto-unlock ────────────────────────────────────────
+
+        async function tryUnlockWithStoredDevice(devicePublicKeyB64, devicePrivateKeyB64) {
+          var res = await fetch("/api/v1/keys/devices/me?public_key=" + encodeURIComponent(devicePublicKeyB64));
+          if (!res.ok) return null;
+
+          var body = await res.json();
+          try {
+            var wrappedAMK = sodium.from_base64(body.wrapped_amk, b64);
+            var devicePublicKey = sodium.from_base64(devicePublicKeyB64, b64);
+            var devicePrivateKey = sodium.from_base64(devicePrivateKeyB64, b64);
+            return sodium.crypto_box_seal_open(wrappedAMK, devicePublicKey, devicePrivateKey);
+          } catch (err) {
+            return null;
+          }
+        }
+
+        // ── Unlock via password ──────────────────────────────────────────────────
+
+        async function unlockWithPassword(password) {
+          var res = await fetch("/api/v1/auth/key-challenge?email=" + encodeURIComponent(email));
+          if (!res.ok) throw new Error("Could not load key challenge");
+          var challenge = await res.json();
+
+          var argon2Salt = sodium.from_base64(challenge.argon2_salt, b64);
+          var passwordKey = sodium.crypto_pwhash(
+            challenge.argon2_keylen,
+            password,
+            argon2Salt,
+            challenge.argon2_time,
+            challenge.argon2_memory,
+            sodium.crypto_pwhash_ALG_ARGON2ID13,
+          );
+
+          var wrapped = sodium.from_base64(challenge.password_wrapped_amk, b64);
+          var nonce = wrapped.slice(0, sodium.crypto_secretbox_NONCEBYTES);
+          var ciphertext = wrapped.slice(sodium.crypto_secretbox_NONCEBYTES);
+
+          try {
+            return sodium.crypto_secretbox_open_easy(ciphertext, nonce, passwordKey);
+          } finally {
+            sodium.memzero(passwordKey);
+          }
+        }
+
+        // ── Unlock via recovery words ────────────────────────────────────────────
+
+        async function unlockWithRecoveryWords(text) {
+          var words = text.trim().split(/\s+/).filter(Boolean);
+          if (words.length !== 32) {
+            throw new Error("Enter all 32 recovery words");
+          }
+          var recoveryKey = wordsToBytes(words);
+
+          var res = await fetch("/api/v1/keys/recovery");
+          if (!res.ok) throw new Error("Could not load recovery data");
+          var body = await res.json();
+
+          var wrapped = sodium.from_base64(body.recovery_wrapped_amk, b64);
+          var nonce = wrapped.slice(0, sodium.crypto_secretbox_NONCEBYTES);
+          var ciphertext = wrapped.slice(sodium.crypto_secretbox_NONCEBYTES);
+
+          return sodium.crypto_secretbox_open_easy(ciphertext, nonce, recoveryKey);
+        }
+
+        async function rotateRecoveryKey(amk) {
+          var newRecoveryKey = sodium.randombytes_buf(32);
+          var nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
+          var wrapped = concatBytes(nonce, sodium.crypto_secretbox_easy(amk, nonce, newRecoveryKey));
+
+          var res = await fetch("/api/v1/keys/recovery", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ recovery_wrapped_amk: sodium.to_base64(wrapped, b64) }),
+          });
+          if (!res.ok) throw new Error("Failed to rotate recovery key");
+
+          return bytesToWords(newRecoveryKey);
+        }
+
+        // ── Register this browser as a device ────────────────────────────────────
+
+        async function registerThisDevice(amk, name) {
+          var deviceKeyPair = sodium.crypto_box_keypair();
+          var wrappedAMK = sodium.crypto_box_seal(amk, deviceKeyPair.publicKey);
+          var publicKeyB64 = sodium.to_base64(deviceKeyPair.publicKey, b64);
+
+          var res = await fetch("/api/v1/keys/devices", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              public_key: publicKeyB64,
+              wrapped_amk: sodium.to_base64(wrappedAMK, b64),
+              name: name,
+            }),
+          });
+          if (!res.ok) throw new Error("Failed to register this device");
+
+          localStorage.setItem("nw_device_private_key", sodium.to_base64(deviceKeyPair.privateKey, b64));
+          localStorage.setItem("nw_device_public_key", publicKeyB64);
+
+          return publicKeyB64;
+        }
+
+        // ── Pairing code (this device is locked, another device approves it) ─────
+
+        async function generatePairingCode() {
+          var deviceKeyPair = sodium.crypto_box_keypair();
+          var publicKeyB64 = sodium.to_base64(deviceKeyPair.publicKey, b64);
+
+          var res = await fetch("/api/v1/keys/device-invite", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ device_public_key: publicKeyB64 }),
+          });
+          if (!res.ok) throw new Error("Failed to create pairing code");
+          var body = await res.json();
+
+          localStorage.setItem("nw_pending_device_private_key", sodium.to_base64(deviceKeyPair.privateKey, b64));
+          localStorage.setItem("nw_pending_device_public_key", publicKeyB64);
+
+          return {
+            token: body.token,
+            payload: JSON.stringify({ token: body.token, device_public_key: publicKeyB64 }),
+          };
+        }
+
+        // Returns the AMK once approved, or null while still pending.
+        async function pollPairingCode(token) {
+          var res = await fetch("/api/v1/keys/device-invite/" + encodeURIComponent(token));
+          if (res.status === 202) return null;
+          if (!res.ok) throw new Error("Pairing code expired");
+
+          var body = await res.json();
+          var devicePrivateKeyB64 = localStorage.getItem("nw_pending_device_private_key");
+          var devicePublicKeyB64 = localStorage.getItem("nw_pending_device_public_key");
+
+          var wrappedAMK = sodium.from_base64(body.wrapped_amk, b64);
+          var devicePublicKey = sodium.from_base64(devicePublicKeyB64, b64);
+          var devicePrivateKey = sodium.from_base64(devicePrivateKeyB64, b64);
+          var amk = sodium.crypto_box_seal_open(wrappedAMK, devicePublicKey, devicePrivateKey);
+
+          localStorage.setItem("nw_device_private_key", devicePrivateKeyB64);
+          localStorage.setItem("nw_device_public_key", devicePublicKeyB64);
+          localStorage.removeItem("nw_pending_device_private_key");
+          localStorage.removeItem("nw_pending_device_public_key");
+
+          return amk;
+        }
+
+        // ── Unlocked view: device list + approve pairing + rotate recovery ────────
+
+        async function loadDevices(currentPublicKey) {
+          var res = await fetch("/api/v1/keys/devices");
+          if (!res.ok) return;
+          var devices = await res.json();
+
+          deviceList.innerHTML = "";
+          devices.forEach(function (device) {
+            var item = document.createElement("li");
+            item.className = "device-item";
+
+            var name = document.createElement("span");
+            name.className = "device-name";
+            name.textContent = device.name || "Unnamed device";
+            item.appendChild(name);
+
+            if (device.public_key === currentPublicKey) {
+              var badge = document.createElement("span");
+              badge.className = "device-badge";
+              badge.textContent = "This device";
+              item.appendChild(badge);
+            }
+
+            var meta = document.createElement("span");
+            meta.className = "device-meta";
+            meta.textContent = "Added " + new Date(device.created_at).toLocaleDateString();
+            item.appendChild(meta);
+
+            deviceList.appendChild(item);
+          });
+        }
+
+        async function approvePairingCode() {
+          approveError.style.display = "none";
+          approveSuccess.style.display = "none";
+
+          var parsed;
+          try {
+            parsed = JSON.parse(approvePairingInput.value.trim());
+          } catch (err) {
+            approveError.textContent = "Invalid pairing code";
+            approveError.style.display = "block";
+            return;
+          }
+          if (!parsed.token || !parsed.device_public_key) {
+            approveError.textContent = "Invalid pairing code";
+            approveError.style.display = "block";
+            return;
+          }
+
+          try {
+            var newDevicePublicKey = sodium.from_base64(parsed.device_public_key, b64);
+            var wrappedAMK = sodium.crypto_box_seal(currentAMK, newDevicePublicKey);
+
+            var res = await fetch("/api/v1/keys/device-invite/" + encodeURIComponent(parsed.token) + "/approve", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ wrapped_amk: sodium.to_base64(wrappedAMK, b64) }),
+            });
+            if (!res.ok) throw new Error("approve failed");
+
+            approveSuccess.textContent = "Device approved.";
+            approveSuccess.style.display = "block";
+            approvePairingInput.value = "";
+            loadDevices(currentDevicePublicKey);
+          } catch (err) {
+            approveError.textContent = "Failed to approve device — the pairing code may have expired";
+            approveError.style.display = "block";
+          }
+        }
+
+        // ── Event wiring ──────────────────────────────────────────────────────────
+
+        tabButtons.forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            tabButtons.forEach(function (b) {
+              b.classList.remove("active");
+            });
+            btn.classList.add("active");
+            tabPanels.forEach(function (panel) {
+              panel.hidden = panel.id !== "tab-" + btn.dataset.tab;
+            });
+          });
+        });
+
+        unlockPasswordBtn.addEventListener("click", async function () {
+          lockedError.style.display = "none";
+          var password = unlockPasswordInput.value;
+          if (!password) return;
+
+          unlockPasswordBtn.disabled = true;
+          unlockPasswordBtn.textContent = "Unlocking…";
+          try {
+            var amk = await unlockWithPassword(password);
+            var devicePublicKey = await registerThisDevice(amk, defaultDeviceName());
+            showUnlocked(amk, devicePublicKey);
+          } catch (err) {
+            showLockedError("Incorrect password");
+          } finally {
+            unlockPasswordBtn.disabled = false;
+            unlockPasswordBtn.textContent = "Unlock";
+          }
+        });
+
+        unlockRecoveryBtn.addEventListener("click", async function () {
+          lockedError.style.display = "none";
+
+          unlockRecoveryBtn.disabled = true;
+          unlockRecoveryBtn.textContent = "Unlocking…";
+          try {
+            var amk = await unlockWithRecoveryWords(unlockRecoveryInput.value);
+            var devicePublicKey = await registerThisDevice(amk, defaultDeviceName());
+            var newWords = await rotateRecoveryKey(amk);
+            showRecoveryRotated(newWords, amk, devicePublicKey);
+          } catch (err) {
+            showLockedError("Invalid recovery words");
+          } finally {
+            unlockRecoveryBtn.disabled = false;
+            unlockRecoveryBtn.textContent = "Unlock";
+          }
+        });
+
+        generatePairingBtn.addEventListener("click", async function () {
+          lockedError.style.display = "none";
+          generatePairingBtn.disabled = true;
+          generatePairingBtn.textContent = "Generating…";
+          try {
+            var pairing = await generatePairingCode();
+            pairingCodeDisplay.textContent = pairing.payload;
+            pairingCodeDisplay.hidden = false;
+            pairingStatus.hidden = false;
+            pairingStatus.textContent = "Waiting for approval…";
+
+            if (pairingPollHandle) clearInterval(pairingPollHandle);
+            pairingPollHandle = setInterval(async function () {
+              try {
+                var amk = await pollPairingCode(pairing.token);
+                if (!amk) return;
+
+                clearInterval(pairingPollHandle);
+                pairingPollHandle = null;
+                showUnlocked(amk, localStorage.getItem("nw_device_public_key"));
+              } catch (err) {
+                clearInterval(pairingPollHandle);
+                pairingPollHandle = null;
+                pairingStatus.textContent = "Pairing code expired — generate a new one";
+              }
+            }, 3000);
+          } catch (err) {
+            showLockedError("Failed to generate pairing code");
+          } finally {
+            generatePairingBtn.disabled = false;
+            generatePairingBtn.textContent = "Generate pairing code";
+          }
+        });
+
+        approvePairingBtn.addEventListener("click", approvePairingCode);
+
+        rotateRecoveryBtn.addEventListener("click", async function () {
+          rotateRecoveryBtn.disabled = true;
+          rotateRecoveryBtn.textContent = "Generating…";
+          try {
+            var newWords = await rotateRecoveryKey(currentAMK);
+            showRecoveryRotated(newWords, currentAMK, currentDevicePublicKey);
+          } catch (err) {
+            // Recovery rotation is best-effort from the unlocked view; the
+            // existing recovery key keeps working if this fails.
+          } finally {
+            rotateRecoveryBtn.disabled = false;
+            rotateRecoveryBtn.textContent = "Generate new recovery key";
+          }
+        });
+
+        // ── Init ──────────────────────────────────────────────────────────────────
+
+        (async function init() {
+          await sodium.ready;
+          b64 = sodium.base64_variants.ORIGINAL;
+
+          var devicePrivateKey = localStorage.getItem("nw_device_private_key");
+          var devicePublicKey = localStorage.getItem("nw_device_public_key");
+
+          if (devicePrivateKey && devicePublicKey) {
+            var amk = await tryUnlockWithStoredDevice(devicePublicKey, devicePrivateKey);
+            if (amk) {
+              showUnlocked(amk, devicePublicKey);
+              return;
+            }
+          }
+
+          showLocked();
+        })();
+      })();
+    </script>
+  </body>
+</html>

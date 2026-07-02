@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Forgot password — NeoWorks</title>
+    <link rel="stylesheet" href="/auth/static/neoworks.css" />
+  </head>
+  <body>
+    <div class="card">
+      <div class="logo">
+        <svg width="20" height="20" viewBox="0 0 100 100" fill="none" aria-hidden="true">
+          <circle cx="50" cy="50" r="40" stroke="currentColor" stroke-width="7" />
+          <path d="M 81 27 C 73 51, 55 69, 26 74" stroke="currentColor" stroke-width="7" stroke-linecap="round" />
+        </svg>
+        <span>NeoWorks</span>
+      </div>
+      <h1>Reset your password</h1>
+      <p class="subtitle">
+        Enter your email and we'll send you a verification code. You'll also
+        need your recovery key to unlock your encrypted data.
+      </p>
+
+      <form method="POST" action="/auth/forgot">
+        <input type="hidden" name="login_challenge" value="{{.LoginChallenge}}" />
+        <div class="field">
+          <label for="email">Email</label>
+          <input
+            type="email"
+            id="email"
+            name="email"
+            autocomplete="email"
+            autofocus
+            required
+          />
+        </div>
+        <button type="submit">Send code</button>
+        <a
+          href="/auth/login?login_challenge={{.LoginChallenge}}"
+          class="signin-link"
+        >
+          Back to sign in
+        </a>
+      </form>
+    </div>
+  </body>
+</html>
