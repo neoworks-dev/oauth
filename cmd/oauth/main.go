@@ -55,7 +55,9 @@ func main() {
 	}
 
 	// ── Storage ───────────────────────────────────────────────────────────────
-	redis := cache.NewRedisStore(redisAddr)
+	redis := cache.NewRedisStore(cache.Config{
+		Addr: redisAddr,
+	})
 
 	surreal, err := database.NewSurrealStore(
 		surrealURL, surrealUser, surrealPass, surrealNS, surrealDB,
