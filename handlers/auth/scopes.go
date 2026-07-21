@@ -35,6 +35,14 @@ var scopeCatalog = map[string]scopeView{
 	"photos:read":  {Name: "View your photos", Description: "Decrypt and display your photo library"},
 	"photos:write": {Name: "Add and edit photos", Description: "Encrypt and store new photos for you"},
 	"legacy:read":  {Name: "Read your existing encrypted data", Description: "Data created before per-app encryption scopes"},
+	// AI runtime scopes gate the local neod daemon. Chat/complete are conversation;
+	// the tool scopes let the agent touch your machine and are far more sensitive.
+	"ai:chat":     {Name: "Chat with AI", Description: "Send messages to the local or cloud AI"},
+	"ai:complete": {Name: "AI text completion", Description: "Autocomplete text and code"},
+	"ai:fsread":   {Name: "Let AI read app files", Description: "Read files within the app's data directory"},
+	"ai:fswrite":  {Name: "Let AI write app files", Description: "Write files in the app's data directory (asks each time)"},
+	"ai:webfetch": {Name: "Let AI fetch web pages", Description: "Fetch content from URLs on your behalf"},
+	"ai:bash":     {Name: "Let AI run commands", Description: "Run sandboxed shell commands on your machine (asks each time)"},
 }
 
 // actionVerbs maps the action segment of a scope to the verb used in its label.

@@ -48,6 +48,14 @@ var scopeCatalog = map[string]scopeView{
 	"profile": {Name: "Access your profile", Description: "Your name, username, and avatar"},
 	"email":   {Name: "Access your email address"},
 	"offline": {Name: "Stay signed in", Description: "Maintain access while you're not using the app"},
+	// AI runtime scopes gate the local neod daemon. The tool scopes let the agent
+	// touch your machine and are far more sensitive than plain chat/complete.
+	"ai:chat":     {Name: "Chat with AI", Description: "Send messages to the local or cloud AI"},
+	"ai:complete": {Name: "AI text completion", Description: "Autocomplete text and code"},
+	"ai:fsread":   {Name: "Let AI read app files", Description: "Read files within the app's data directory"},
+	"ai:fswrite":  {Name: "Let AI write app files", Description: "Write files in the app's data directory (asks each time)"},
+	"ai:webfetch": {Name: "Let AI fetch web pages", Description: "Fetch content from URLs on your behalf"},
+	"ai:bash":     {Name: "Let AI run commands", Description: "Run sandboxed shell commands on your machine (asks each time)"},
 }
 
 type scopeView struct {

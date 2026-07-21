@@ -709,6 +709,31 @@
 							return;
 						}
 						const path = msg.type === 'ai-chat' ? '/v1/chat' : '/v1/complete';
+
+						// Sealed persistence: when the app opts into a session, the prior
+						// history is stored only as an opaque blob sealed under chatStateKey.
+						// The Vault unseals it, prepends it to the new turn for the daemon,
+						// and re-seals the extended history — the app never sees plaintext.
+						const payload = msg.payload || {};
+						const wantsSession = msg.type === 'ai-chat' && payload.persist === true;
+						if (wantsSession && !chatStateKey) {
+							e.source.postMessage({ type: 'result', id: msg.id, ok: false, error: 'locked' }, e.origin);
+							return;
+						}
+						let requestBody = payload;
+						if (wantsSession) {
+							let priorMessages = [];
+							if (payload.session) {
+								try {
+									priorMessages = openState(payload.session);
+								} catch (_) {
+									e.source.postMessage({ type: 'result', id: msg.id, ok: false, error: 'bad_session' }, e.origin);
+									return;
+								}
+							}
+							const incoming = Array.isArray(payload.messages) ? payload.messages : [];
+							requestBody = { model: payload.model, messages: priorMessages.concat(incoming), tools: payload.tools };
+						}
 						try {
 							const res = await fetch(DAEMON_URL + path, {
 								method: 'POST',
@@ -716,7 +741,7 @@
 									'Content-Type': 'application/json',
 									Authorization: 'Bearer ' + (accessToken || '')
 								},
-								body: JSON.stringify(msg.payload || {})
+								body: JSON.stringify(requestBody)
 							});
 							if (!res.ok || !res.body) {
 								e.source.postMessage(
@@ -728,6 +753,9 @@
 							const reader = res.body.getReader();
 							const decoder = new TextDecoder();
 							let sseBuffer = '';
+							// Reconstruct the assistant turn from the deltas we forward, so a
+							// sealed session can be re-sealed without the daemon echoing history.
+							let assistantText = '';
 							for (;;) {
 								const { value, done } = await reader.read();
 								if (done) break;
@@ -746,6 +774,7 @@
 										continue;
 									}
 									if (parsed.delta) {
+										assistantText += parsed.delta;
 										e.source.postMessage({ type: 'ai-chunk', id: msg.id, delta: parsed.delta }, e.origin);
 									} else if (parsed.error) {
 										e.source.postMessage({ type: 'result', id: msg.id, ok: false, error: parsed.error }, e.origin);
@@ -753,7 +782,12 @@
 									}
 								}
 							}
-							e.source.postMessage({ type: 'result', id: msg.id, ok: true, done: true }, e.origin);
+							const result = { type: 'result', id: msg.id, ok: true, done: true };
+							if (wantsSession) {
+								const fullHistory = requestBody.messages.concat([{ role: 'assistant', content: assistantText }]);
+								result.session = sealState(fullHistory);
+							}
+							e.source.postMessage(result, e.origin);
 						} catch (err) {
 							e.source.postMessage(
 								{ type: 'result', id: msg.id, ok: false, error: String(err && err.message) },
