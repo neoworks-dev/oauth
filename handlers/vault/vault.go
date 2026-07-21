@@ -60,6 +60,18 @@ func (h *Handler) Register(r chi.Router) {
 type vaultData struct {
 	AllowedOriginsJSON template.JS
 	AppName            string
+	// DaemonURLJSON is the JSON-quoted origin of the local AI runtime daemon
+	// (neod) the vault brokers ai-* ops to. Derived from the base domain unless
+	// NEOD_URL overrides it.
+	DaemonURLJSON template.JS
+}
+
+// daemonURL is the AI runtime daemon origin the vault fetches for ai-* ops.
+func daemonURL() string {
+	if v := os.Getenv("NEOD_URL"); v != "" {
+		return v
+	}
+	return config.ServiceURL("ai")
 }
 
 // appName resolves the embedding client's display name from its registered
@@ -78,11 +90,13 @@ func (h *Handler) appName(r *http.Request) string {
 
 func (h *Handler) serveVault(w http.ResponseWriter, r *http.Request) {
 	originsJSON, _ := json.Marshal(h.allowedOrigins)
+	daemonJSON, _ := json.Marshal(daemonURL())
 
 	var buf bytes.Buffer
 	if err := vaultTmpl.Execute(&buf, vaultData{
 		AllowedOriginsJSON: template.JS(originsJSON),
 		AppName:            h.appName(r),
+		DaemonURLJSON:      template.JS(daemonJSON),
 	}); err != nil {
 		http.Error(w, "render error", http.StatusInternalServerError)
 		return

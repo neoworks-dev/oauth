@@ -49,6 +49,8 @@
 		<script>
 			(function () {
 				const ALLOWED_ORIGINS = {{.AllowedOriginsJSON}};
+				// Local AI runtime daemon origin the vault brokers ai-* ops to.
+				const DAEMON_URL = {{.DaemonURLJSON}};
 
 				const card = document.getElementById('card');
 				const passwordRow = document.getElementById('password-row');
@@ -60,6 +62,10 @@
 				let parentOrigin = null;
 				let email = null;
 				let needPassword = false;
+				// The embedding client's access token, captured at vault-init. Used to
+				// authenticate the vault's brokered fetch to the AI daemon. Never posted
+				// back to the app.
+				let accessToken = null;
 
 				// Account keypair derived from the AMK on unlock (X25519). The private
 				// key stays in this page only; the public key is published so others can
@@ -626,6 +632,7 @@
 					if (msg.type === 'vault-init') {
 						parentOrigin = e.origin;
 						email = msg.email || null;
+						accessToken = msg.token || null;
 						// Bind this session's decryption capability to the embedding
 						// client's granted OAuth scopes (from its access token). Done
 						// before unlock so publishScopeKeys covers the granted labels.
@@ -683,6 +690,70 @@
 								throw new Error('unknown chat op');
 							}
 							e.source.postMessage({ type: 'result', id: msg.id, ok: true, ...result }, e.origin);
+						} catch (err) {
+							e.source.postMessage(
+								{ type: 'result', id: msg.id, ok: false, error: String(err && err.message) },
+								e.origin
+							);
+						}
+						return;
+					}
+
+					if (msg.type === 'ai-complete' || msg.type === 'ai-chat') {
+						// AI ops need no AMK — only the granted ai:* scope. Gate on the
+						// exact scope string (not the crypto-label path), then broker the
+						// request to the local daemon and stream deltas back.
+						const scope = msg.type === 'ai-chat' ? 'ai:chat' : 'ai:complete';
+						if (!grantedScopes.includes(scope)) {
+							e.source.postMessage({ type: 'result', id: msg.id, ok: false, error: 'scope_not_granted' }, e.origin);
+							return;
+						}
+						const path = msg.type === 'ai-chat' ? '/v1/chat' : '/v1/complete';
+						try {
+							const res = await fetch(DAEMON_URL + path, {
+								method: 'POST',
+								headers: {
+									'Content-Type': 'application/json',
+									Authorization: 'Bearer ' + (accessToken || '')
+								},
+								body: JSON.stringify(msg.payload || {})
+							});
+							if (!res.ok || !res.body) {
+								e.source.postMessage(
+									{ type: 'result', id: msg.id, ok: false, error: 'daemon_status_' + res.status },
+									e.origin
+								);
+								return;
+							}
+							const reader = res.body.getReader();
+							const decoder = new TextDecoder();
+							let sseBuffer = '';
+							for (;;) {
+								const { value, done } = await reader.read();
+								if (done) break;
+								sseBuffer += decoder.decode(value, { stream: true });
+								let sep;
+								while ((sep = sseBuffer.indexOf('\n\n')) !== -1) {
+									const frame = sseBuffer.slice(0, sep).trim();
+									sseBuffer = sseBuffer.slice(sep + 2);
+									if (!frame.startsWith('data:')) continue;
+									const data = frame.slice(5).trim();
+									if (data === '[DONE]') continue;
+									let parsed;
+									try {
+										parsed = JSON.parse(data);
+									} catch (_) {
+										continue;
+									}
+									if (parsed.delta) {
+										e.source.postMessage({ type: 'ai-chunk', id: msg.id, delta: parsed.delta }, e.origin);
+									} else if (parsed.error) {
+										e.source.postMessage({ type: 'result', id: msg.id, ok: false, error: parsed.error }, e.origin);
+										return;
+									}
+								}
+							}
+							e.source.postMessage({ type: 'result', id: msg.id, ok: true, done: true }, e.origin);
 						} catch (err) {
 							e.source.postMessage(
 								{ type: 'result', id: msg.id, ok: false, error: String(err && err.message) },
