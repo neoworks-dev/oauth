@@ -2214,6 +2214,799 @@ function readContact(r, path) {
 	if (unknown !== void 0 && unknown.length > 0) result.$unknown = unknown;
 	return result;
 }
+var KNOWN_ContactVersion = /* @__PURE__ */ new Set([
+	1,
+	2,
+	3,
+	4,
+	5,
+	6,
+	7,
+	8,
+	9,
+	10,
+	11,
+	12,
+	13,
+	14,
+	15,
+	16,
+	17,
+	18,
+	19,
+	20,
+	21,
+	22,
+	23,
+	24,
+	25,
+	26,
+	27,
+	28,
+	29,
+	30,
+	31,
+	32,
+	33,
+	34,
+	35,
+	36,
+	37,
+	38,
+	39,
+	40
+]);
+var RETIRED_ContactVersion = /* @__PURE__ */ new Set([]);
+function encodeContactVersion(value) {
+	const writer = new Writer();
+	writeContactVersion(writer, value, "ContactVersion");
+	return writer.finish();
+}
+function writeContactVersion(w, value, path) {
+	const unknown = prepareUnknown(value.$unknown, KNOWN_ContactVersion, path);
+	let pending = 0;
+	pending = flushUnknownBefore(w, unknown, pending, 1);
+	w.key(1, 2);
+	w.lengthDelimited(uuidToBytes(value.id, path + ".id"));
+	pending = flushUnknownBefore(w, unknown, pending, 2);
+	w.key(2, 2);
+	w.lengthDelimited(uuidToBytes(value.contact_id, path + ".contact_id"));
+	pending = flushUnknownBefore(w, unknown, pending, 3);
+	w.key(3, 2);
+	w.string(value.uid);
+	pending = flushUnknownBefore(w, unknown, pending, 4);
+	w.key(4, 2);
+	w.string(value.kind);
+	pending = flushUnknownBefore(w, unknown, pending, 5);
+	w.key(5, 2);
+	w.string(value.formatted_name);
+	pending = flushUnknownBefore(w, unknown, pending, 6);
+	if (value.name !== null && value.name !== void 0) {
+		const present = value.name;
+		w.key(6, 2);
+		{
+			const nestedOffset = w.beginNested();
+			writeName(w, present, path + ".name");
+			w.endNested(nestedOffset);
+		}
+	}
+	pending = flushUnknownBefore(w, unknown, pending, 7);
+	if (value.nicknames !== null && value.nicknames !== void 0) {
+		const present = value.nicknames;
+		w.key(7, 2);
+		const wrapperOffset = w.beginNested();
+		for (const item of present) {
+			w.key(1, 2);
+			w.string(item);
+		}
+		w.endNested(wrapperOffset);
+	}
+	pending = flushUnknownBefore(w, unknown, pending, 8);
+	if (value.birthday !== null && value.birthday !== void 0) {
+		const present = value.birthday;
+		w.key(8, 2);
+		w.string(present);
+	}
+	pending = flushUnknownBefore(w, unknown, pending, 9);
+	if (value.anniversary !== null && value.anniversary !== void 0) {
+		const present = value.anniversary;
+		w.key(9, 2);
+		w.string(present);
+	}
+	pending = flushUnknownBefore(w, unknown, pending, 10);
+	if (value.gender !== null && value.gender !== void 0) {
+		const present = value.gender;
+		w.key(10, 2);
+		{
+			const nestedOffset = w.beginNested();
+			writeGender(w, present, path + ".gender");
+			w.endNested(nestedOffset);
+		}
+	}
+	pending = flushUnknownBefore(w, unknown, pending, 11);
+	if (value.emails !== null && value.emails !== void 0) {
+		const present = value.emails;
+		w.key(11, 2);
+		const wrapperOffset = w.beginNested();
+		for (const item of present) {
+			w.key(1, 2);
+			{
+				const nestedOffset = w.beginNested();
+				writeContactField(w, item, path + ".emails");
+				w.endNested(nestedOffset);
+			}
+		}
+		w.endNested(wrapperOffset);
+	}
+	pending = flushUnknownBefore(w, unknown, pending, 12);
+	if (value.phones !== null && value.phones !== void 0) {
+		const present = value.phones;
+		w.key(12, 2);
+		const wrapperOffset = w.beginNested();
+		for (const item of present) {
+			w.key(1, 2);
+			{
+				const nestedOffset = w.beginNested();
+				writeContactField(w, item, path + ".phones");
+				w.endNested(nestedOffset);
+			}
+		}
+		w.endNested(wrapperOffset);
+	}
+	pending = flushUnknownBefore(w, unknown, pending, 13);
+	if (value.impps !== null && value.impps !== void 0) {
+		const present = value.impps;
+		w.key(13, 2);
+		const wrapperOffset = w.beginNested();
+		for (const item of present) {
+			w.key(1, 2);
+			{
+				const nestedOffset = w.beginNested();
+				writeContactField(w, item, path + ".impps");
+				w.endNested(nestedOffset);
+			}
+		}
+		w.endNested(wrapperOffset);
+	}
+	pending = flushUnknownBefore(w, unknown, pending, 14);
+	if (value.languages !== null && value.languages !== void 0) {
+		const present = value.languages;
+		w.key(14, 2);
+		const wrapperOffset = w.beginNested();
+		for (const item of present) {
+			w.key(1, 2);
+			{
+				const nestedOffset = w.beginNested();
+				writeContactField(w, item, path + ".languages");
+				w.endNested(nestedOffset);
+			}
+		}
+		w.endNested(wrapperOffset);
+	}
+	pending = flushUnknownBefore(w, unknown, pending, 15);
+	if (value.addresses !== null && value.addresses !== void 0) {
+		const present = value.addresses;
+		w.key(15, 2);
+		const wrapperOffset = w.beginNested();
+		for (const item of present) {
+			w.key(1, 2);
+			{
+				const nestedOffset = w.beginNested();
+				writeAddress(w, item, path + ".addresses");
+				w.endNested(nestedOffset);
+			}
+		}
+		w.endNested(wrapperOffset);
+	}
+	pending = flushUnknownBefore(w, unknown, pending, 16);
+	if (value.organizations !== null && value.organizations !== void 0) {
+		const present = value.organizations;
+		w.key(16, 2);
+		const wrapperOffset = w.beginNested();
+		for (const item of present) {
+			w.key(1, 2);
+			{
+				const nestedOffset = w.beginNested();
+				writeContactOrganization(w, item, path + ".organizations");
+				w.endNested(nestedOffset);
+			}
+		}
+		w.endNested(wrapperOffset);
+	}
+	pending = flushUnknownBefore(w, unknown, pending, 17);
+	if (value.title !== null && value.title !== void 0) {
+		const present = value.title;
+		w.key(17, 2);
+		w.string(present);
+	}
+	pending = flushUnknownBefore(w, unknown, pending, 18);
+	if (value.role !== null && value.role !== void 0) {
+		const present = value.role;
+		w.key(18, 2);
+		w.string(present);
+	}
+	pending = flushUnknownBefore(w, unknown, pending, 19);
+	if (value.timezone !== null && value.timezone !== void 0) {
+		const present = value.timezone;
+		w.key(19, 2);
+		w.string(present);
+	}
+	pending = flushUnknownBefore(w, unknown, pending, 20);
+	if (value.geo !== null && value.geo !== void 0) {
+		const present = value.geo;
+		w.key(20, 2);
+		{
+			const nestedOffset = w.beginNested();
+			writeGeo(w, present, path + ".geo");
+			w.endNested(nestedOffset);
+		}
+	}
+	pending = flushUnknownBefore(w, unknown, pending, 21);
+	if (value.categories !== null && value.categories !== void 0) {
+		const present = value.categories;
+		w.key(21, 2);
+		const wrapperOffset = w.beginNested();
+		for (const item of present) {
+			w.key(1, 2);
+			w.string(item);
+		}
+		w.endNested(wrapperOffset);
+	}
+	pending = flushUnknownBefore(w, unknown, pending, 22);
+	if (value.notes !== null && value.notes !== void 0) {
+		const present = value.notes;
+		w.key(22, 2);
+		const wrapperOffset = w.beginNested();
+		for (const item of present) {
+			w.key(1, 2);
+			w.string(item);
+		}
+		w.endNested(wrapperOffset);
+	}
+	pending = flushUnknownBefore(w, unknown, pending, 23);
+	if (value.urls !== null && value.urls !== void 0) {
+		const present = value.urls;
+		w.key(23, 2);
+		const wrapperOffset = w.beginNested();
+		for (const item of present) {
+			w.key(1, 2);
+			{
+				const nestedOffset = w.beginNested();
+				writeContactField(w, item, path + ".urls");
+				w.endNested(nestedOffset);
+			}
+		}
+		w.endNested(wrapperOffset);
+	}
+	pending = flushUnknownBefore(w, unknown, pending, 24);
+	if (value.source !== null && value.source !== void 0) {
+		const present = value.source;
+		w.key(24, 2);
+		w.string(present);
+	}
+	pending = flushUnknownBefore(w, unknown, pending, 25);
+	if (value.prodid !== null && value.prodid !== void 0) {
+		const present = value.prodid;
+		w.key(25, 2);
+		w.string(present);
+	}
+	pending = flushUnknownBefore(w, unknown, pending, 26);
+	if (value.fburl !== null && value.fburl !== void 0) {
+		const present = value.fburl;
+		w.key(26, 2);
+		w.string(present);
+	}
+	pending = flushUnknownBefore(w, unknown, pending, 27);
+	if (value.caluri !== null && value.caluri !== void 0) {
+		const present = value.caluri;
+		w.key(27, 2);
+		w.string(present);
+	}
+	pending = flushUnknownBefore(w, unknown, pending, 28);
+	if (value.caladruri !== null && value.caladruri !== void 0) {
+		const present = value.caladruri;
+		w.key(28, 2);
+		w.string(present);
+	}
+	pending = flushUnknownBefore(w, unknown, pending, 29);
+	if (value.photo !== null && value.photo !== void 0) {
+		const present = value.photo;
+		w.key(29, 2);
+		w.lengthDelimited(uuidToBytes(present, path + ".photo"));
+	}
+	pending = flushUnknownBefore(w, unknown, pending, 30);
+	if (value.logo !== null && value.logo !== void 0) {
+		const present = value.logo;
+		w.key(30, 2);
+		w.lengthDelimited(uuidToBytes(present, path + ".logo"));
+	}
+	pending = flushUnknownBefore(w, unknown, pending, 31);
+	if (value.sound !== null && value.sound !== void 0) {
+		const present = value.sound;
+		w.key(31, 2);
+		w.lengthDelimited(uuidToBytes(present, path + ".sound"));
+	}
+	pending = flushUnknownBefore(w, unknown, pending, 32);
+	if (value.key !== null && value.key !== void 0) {
+		const present = value.key;
+		w.key(32, 2);
+		w.lengthDelimited(uuidToBytes(present, path + ".key"));
+	}
+	pending = flushUnknownBefore(w, unknown, pending, 33);
+	if (value.custom_fields !== null && value.custom_fields !== void 0) {
+		const present = value.custom_fields;
+		w.key(33, 2);
+		const wrapperOffset = w.beginNested();
+		for (const item of present) {
+			w.key(1, 2);
+			{
+				const nestedOffset = w.beginNested();
+				writeCustomField(w, item, path + ".custom_fields");
+				w.endNested(nestedOffset);
+			}
+		}
+		w.endNested(wrapperOffset);
+	}
+	pending = flushUnknownBefore(w, unknown, pending, 34);
+	w.key(34, 0);
+	w.varintNumber(value.favorite ? 1 : 0);
+	pending = flushUnknownBefore(w, unknown, pending, 35);
+	w.key(35, 0);
+	w.varintNumber(value.archived ? 1 : 0);
+	pending = flushUnknownBefore(w, unknown, pending, 36);
+	w.key(36, 0);
+	w.varintNumber(value.deleted ? 1 : 0);
+	pending = flushUnknownBefore(w, unknown, pending, 37);
+	w.key(37, 0);
+	w.varintNumber(timestampToMillis(value.created_at, path + ".created_at"));
+	pending = flushUnknownBefore(w, unknown, pending, 38);
+	if (value.parent_ids !== null && value.parent_ids !== void 0) {
+		const present = value.parent_ids;
+		w.key(38, 2);
+		const wrapperOffset = w.beginNested();
+		for (const item of present) {
+			w.key(1, 2);
+			w.lengthDelimited(uuidToBytes(item, path + ".parent_ids"));
+		}
+		w.endNested(wrapperOffset);
+	}
+	pending = flushUnknownBefore(w, unknown, pending, 39);
+	if (value.related !== null && value.related !== void 0) {
+		const present = value.related;
+		w.key(39, 2);
+		const wrapperOffset = w.beginNested();
+		for (const item of present) {
+			w.key(1, 2);
+			{
+				const nestedOffset = w.beginNested();
+				writeContactRelation(w, item, path + ".related");
+				w.endNested(nestedOffset);
+			}
+		}
+		w.endNested(wrapperOffset);
+	}
+	pending = flushUnknownBefore(w, unknown, pending, 40);
+	if (value.member_ids !== null && value.member_ids !== void 0) {
+		const present = value.member_ids;
+		w.key(40, 2);
+		const wrapperOffset = w.beginNested();
+		for (const item of present) {
+			w.key(1, 2);
+			w.lengthDelimited(uuidToBytes(item, path + ".member_ids"));
+		}
+		w.endNested(wrapperOffset);
+	}
+	flushUnknownRest(w, unknown, pending);
+}
+function decodeContactVersion(bytes) {
+	return readContactVersion(Reader.of(bytes, "ContactVersion"), "ContactVersion");
+}
+function readContactVersion(r, path) {
+	let field1;
+	let field2;
+	let field3;
+	let field4;
+	let field5;
+	let field6;
+	let field7;
+	let field8;
+	let field9;
+	let field10;
+	let field11;
+	let field12;
+	let field13;
+	let field14;
+	let field15;
+	let field16;
+	let field17;
+	let field18;
+	let field19;
+	let field20;
+	let field21;
+	let field22;
+	let field23;
+	let field24;
+	let field25;
+	let field26;
+	let field27;
+	let field28;
+	let field29;
+	let field30;
+	let field31;
+	let field32;
+	let field33;
+	let field34;
+	let field35;
+	let field36;
+	let field37;
+	let field38;
+	let field39;
+	let field40;
+	let unknown;
+	while (r.hasMore()) {
+		const wireKey = r.key();
+		const tag = wireKey >>> 3;
+		const wire = wireKey & 7;
+		switch (tag) {
+			case 1:
+				field1 = bytesToUuid(readBytesField(r, wire, path + ".id"), path + ".id");
+				break;
+			case 2:
+				field2 = bytesToUuid(readBytesField(r, wire, path + ".contact_id"), path + ".contact_id");
+				break;
+			case 3:
+				field3 = readStringField(r, wire, path + ".uid");
+				break;
+			case 4:
+				field4 = readStringField(r, wire, path + ".kind");
+				break;
+			case 5:
+				field5 = readStringField(r, wire, path + ".formatted_name");
+				break;
+			case 6:
+				field6 = readName((expectWire(wire, 2, path + ".name"), r.subMessage(path + ".name")), path + ".name");
+				break;
+			case 7: {
+				expectWire(wire, 2, path + ".nicknames");
+				const wrapper = r.subMessage(path + ".nicknames");
+				const items = [];
+				while (wrapper.hasMore()) {
+					const innerKey = wrapper.key();
+					const innerWire = innerKey & 7;
+					if (innerKey >>> 3 !== 1) {
+						wrapper.skipBody(innerWire);
+						continue;
+					}
+					items.push(readStringField(wrapper, innerWire, path + ".nicknames"));
+				}
+				field7 = items;
+				break;
+			}
+			case 8:
+				field8 = readStringField(r, wire, path + ".birthday");
+				break;
+			case 9:
+				field9 = readStringField(r, wire, path + ".anniversary");
+				break;
+			case 10:
+				field10 = readGender((expectWire(wire, 2, path + ".gender"), r.subMessage(path + ".gender")), path + ".gender");
+				break;
+			case 11: {
+				expectWire(wire, 2, path + ".emails");
+				const wrapper = r.subMessage(path + ".emails");
+				const items = [];
+				while (wrapper.hasMore()) {
+					const innerKey = wrapper.key();
+					const innerWire = innerKey & 7;
+					if (innerKey >>> 3 !== 1) {
+						wrapper.skipBody(innerWire);
+						continue;
+					}
+					items.push(readContactField((expectWire(innerWire, 2, path + ".emails"), wrapper.subMessage(path + ".emails")), path + ".emails"));
+				}
+				field11 = items;
+				break;
+			}
+			case 12: {
+				expectWire(wire, 2, path + ".phones");
+				const wrapper = r.subMessage(path + ".phones");
+				const items = [];
+				while (wrapper.hasMore()) {
+					const innerKey = wrapper.key();
+					const innerWire = innerKey & 7;
+					if (innerKey >>> 3 !== 1) {
+						wrapper.skipBody(innerWire);
+						continue;
+					}
+					items.push(readContactField((expectWire(innerWire, 2, path + ".phones"), wrapper.subMessage(path + ".phones")), path + ".phones"));
+				}
+				field12 = items;
+				break;
+			}
+			case 13: {
+				expectWire(wire, 2, path + ".impps");
+				const wrapper = r.subMessage(path + ".impps");
+				const items = [];
+				while (wrapper.hasMore()) {
+					const innerKey = wrapper.key();
+					const innerWire = innerKey & 7;
+					if (innerKey >>> 3 !== 1) {
+						wrapper.skipBody(innerWire);
+						continue;
+					}
+					items.push(readContactField((expectWire(innerWire, 2, path + ".impps"), wrapper.subMessage(path + ".impps")), path + ".impps"));
+				}
+				field13 = items;
+				break;
+			}
+			case 14: {
+				expectWire(wire, 2, path + ".languages");
+				const wrapper = r.subMessage(path + ".languages");
+				const items = [];
+				while (wrapper.hasMore()) {
+					const innerKey = wrapper.key();
+					const innerWire = innerKey & 7;
+					if (innerKey >>> 3 !== 1) {
+						wrapper.skipBody(innerWire);
+						continue;
+					}
+					items.push(readContactField((expectWire(innerWire, 2, path + ".languages"), wrapper.subMessage(path + ".languages")), path + ".languages"));
+				}
+				field14 = items;
+				break;
+			}
+			case 15: {
+				expectWire(wire, 2, path + ".addresses");
+				const wrapper = r.subMessage(path + ".addresses");
+				const items = [];
+				while (wrapper.hasMore()) {
+					const innerKey = wrapper.key();
+					const innerWire = innerKey & 7;
+					if (innerKey >>> 3 !== 1) {
+						wrapper.skipBody(innerWire);
+						continue;
+					}
+					items.push(readAddress((expectWire(innerWire, 2, path + ".addresses"), wrapper.subMessage(path + ".addresses")), path + ".addresses"));
+				}
+				field15 = items;
+				break;
+			}
+			case 16: {
+				expectWire(wire, 2, path + ".organizations");
+				const wrapper = r.subMessage(path + ".organizations");
+				const items = [];
+				while (wrapper.hasMore()) {
+					const innerKey = wrapper.key();
+					const innerWire = innerKey & 7;
+					if (innerKey >>> 3 !== 1) {
+						wrapper.skipBody(innerWire);
+						continue;
+					}
+					items.push(readContactOrganization((expectWire(innerWire, 2, path + ".organizations"), wrapper.subMessage(path + ".organizations")), path + ".organizations"));
+				}
+				field16 = items;
+				break;
+			}
+			case 17:
+				field17 = readStringField(r, wire, path + ".title");
+				break;
+			case 18:
+				field18 = readStringField(r, wire, path + ".role");
+				break;
+			case 19:
+				field19 = readStringField(r, wire, path + ".timezone");
+				break;
+			case 20:
+				field20 = readGeo((expectWire(wire, 2, path + ".geo"), r.subMessage(path + ".geo")), path + ".geo");
+				break;
+			case 21: {
+				expectWire(wire, 2, path + ".categories");
+				const wrapper = r.subMessage(path + ".categories");
+				const items = [];
+				while (wrapper.hasMore()) {
+					const innerKey = wrapper.key();
+					const innerWire = innerKey & 7;
+					if (innerKey >>> 3 !== 1) {
+						wrapper.skipBody(innerWire);
+						continue;
+					}
+					items.push(readStringField(wrapper, innerWire, path + ".categories"));
+				}
+				field21 = items;
+				break;
+			}
+			case 22: {
+				expectWire(wire, 2, path + ".notes");
+				const wrapper = r.subMessage(path + ".notes");
+				const items = [];
+				while (wrapper.hasMore()) {
+					const innerKey = wrapper.key();
+					const innerWire = innerKey & 7;
+					if (innerKey >>> 3 !== 1) {
+						wrapper.skipBody(innerWire);
+						continue;
+					}
+					items.push(readStringField(wrapper, innerWire, path + ".notes"));
+				}
+				field22 = items;
+				break;
+			}
+			case 23: {
+				expectWire(wire, 2, path + ".urls");
+				const wrapper = r.subMessage(path + ".urls");
+				const items = [];
+				while (wrapper.hasMore()) {
+					const innerKey = wrapper.key();
+					const innerWire = innerKey & 7;
+					if (innerKey >>> 3 !== 1) {
+						wrapper.skipBody(innerWire);
+						continue;
+					}
+					items.push(readContactField((expectWire(innerWire, 2, path + ".urls"), wrapper.subMessage(path + ".urls")), path + ".urls"));
+				}
+				field23 = items;
+				break;
+			}
+			case 24:
+				field24 = readStringField(r, wire, path + ".source");
+				break;
+			case 25:
+				field25 = readStringField(r, wire, path + ".prodid");
+				break;
+			case 26:
+				field26 = readStringField(r, wire, path + ".fburl");
+				break;
+			case 27:
+				field27 = readStringField(r, wire, path + ".caluri");
+				break;
+			case 28:
+				field28 = readStringField(r, wire, path + ".caladruri");
+				break;
+			case 29:
+				field29 = bytesToUuid(readBytesField(r, wire, path + ".photo"), path + ".photo");
+				break;
+			case 30:
+				field30 = bytesToUuid(readBytesField(r, wire, path + ".logo"), path + ".logo");
+				break;
+			case 31:
+				field31 = bytesToUuid(readBytesField(r, wire, path + ".sound"), path + ".sound");
+				break;
+			case 32:
+				field32 = bytesToUuid(readBytesField(r, wire, path + ".key"), path + ".key");
+				break;
+			case 33: {
+				expectWire(wire, 2, path + ".custom_fields");
+				const wrapper = r.subMessage(path + ".custom_fields");
+				const items = [];
+				while (wrapper.hasMore()) {
+					const innerKey = wrapper.key();
+					const innerWire = innerKey & 7;
+					if (innerKey >>> 3 !== 1) {
+						wrapper.skipBody(innerWire);
+						continue;
+					}
+					items.push(readCustomField((expectWire(innerWire, 2, path + ".custom_fields"), wrapper.subMessage(path + ".custom_fields")), path + ".custom_fields"));
+				}
+				field33 = items;
+				break;
+			}
+			case 34:
+				field34 = readUnsignedField(r, wire, path + ".favorite") !== 0;
+				break;
+			case 35:
+				field35 = readUnsignedField(r, wire, path + ".archived") !== 0;
+				break;
+			case 36:
+				field36 = readUnsignedField(r, wire, path + ".deleted") !== 0;
+				break;
+			case 37:
+				field37 = millisToTimestamp(readSignedField(r, wire, path + ".created_at"), path + ".created_at");
+				break;
+			case 38: {
+				expectWire(wire, 2, path + ".parent_ids");
+				const wrapper = r.subMessage(path + ".parent_ids");
+				const items = [];
+				while (wrapper.hasMore()) {
+					const innerKey = wrapper.key();
+					const innerWire = innerKey & 7;
+					if (innerKey >>> 3 !== 1) {
+						wrapper.skipBody(innerWire);
+						continue;
+					}
+					items.push(bytesToUuid(readBytesField(wrapper, innerWire, path + ".parent_ids"), path + ".parent_ids"));
+				}
+				field38 = items;
+				break;
+			}
+			case 39: {
+				expectWire(wire, 2, path + ".related");
+				const wrapper = r.subMessage(path + ".related");
+				const items = [];
+				while (wrapper.hasMore()) {
+					const innerKey = wrapper.key();
+					const innerWire = innerKey & 7;
+					if (innerKey >>> 3 !== 1) {
+						wrapper.skipBody(innerWire);
+						continue;
+					}
+					items.push(readContactRelation((expectWire(innerWire, 2, path + ".related"), wrapper.subMessage(path + ".related")), path + ".related"));
+				}
+				field39 = items;
+				break;
+			}
+			case 40: {
+				expectWire(wire, 2, path + ".member_ids");
+				const wrapper = r.subMessage(path + ".member_ids");
+				const items = [];
+				while (wrapper.hasMore()) {
+					const innerKey = wrapper.key();
+					const innerWire = innerKey & 7;
+					if (innerKey >>> 3 !== 1) {
+						wrapper.skipBody(innerWire);
+						continue;
+					}
+					items.push(bytesToUuid(readBytesField(wrapper, innerWire, path + ".member_ids"), path + ".member_ids"));
+				}
+				field40 = items;
+				break;
+			}
+			default: unknown = captureUnknown(r, wireKey, tag, wire, unknown, RETIRED_ContactVersion);
+		}
+	}
+	if (field1 === void 0) throw missingField(path, "id", 1);
+	if (field2 === void 0) throw missingField(path, "contact_id", 2);
+	if (field3 === void 0) throw missingField(path, "uid", 3);
+	if (field4 === void 0) throw missingField(path, "kind", 4);
+	if (field5 === void 0) throw missingField(path, "formatted_name", 5);
+	if (field34 === void 0) throw missingField(path, "favorite", 34);
+	if (field35 === void 0) throw missingField(path, "archived", 35);
+	if (field36 === void 0) throw missingField(path, "deleted", 36);
+	if (field37 === void 0) throw missingField(path, "created_at", 37);
+	const result = {
+		id: field1,
+		contact_id: field2,
+		uid: field3,
+		kind: field4,
+		formatted_name: field5,
+		name: field6,
+		nicknames: field7,
+		birthday: field8,
+		anniversary: field9,
+		gender: field10,
+		emails: field11,
+		phones: field12,
+		impps: field13,
+		languages: field14,
+		addresses: field15,
+		organizations: field16,
+		title: field17,
+		role: field18,
+		timezone: field19,
+		geo: field20,
+		categories: field21,
+		notes: field22,
+		urls: field23,
+		source: field24,
+		prodid: field25,
+		fburl: field26,
+		caluri: field27,
+		caladruri: field28,
+		photo: field29,
+		logo: field30,
+		sound: field31,
+		key: field32,
+		custom_fields: field33,
+		favorite: field34,
+		archived: field35,
+		deleted: field36,
+		created_at: field37,
+		parent_ids: field38,
+		related: field39,
+		member_ids: field40
+	};
+	if (unknown !== void 0 && unknown.length > 0) result.$unknown = unknown;
+	return result;
+}
 //#endregion
 //#region src/vault/envelope.ts
 function encodeRow(contact) {
@@ -2221,6 +3014,28 @@ function encodeRow(contact) {
 }
 function decodeRow(bytes) {
 	return decodeContact(bytes);
+}
+function encodeVersion(version) {
+	return encodeContactVersion(version);
+}
+function decodeVersion(bytes) {
+	return decodeContactVersion(bytes);
+}
+/**
+* The history entry for a contact's new content. Mirrors every data field, so
+* restoring it reproduces the contact exactly; `parentIds` records the lineage.
+*/
+function versionFromContact(versionId, contact, parentIds, createdAt) {
+	const { id, related, member_ids, created_at, updated_at, $unknown, ...fields } = contact;
+	return {
+		...fields,
+		id: versionId,
+		contact_id: id,
+		related,
+		member_ids,
+		created_at: createdAt,
+		parent_ids: parentIds.length > 0 ? parentIds : void 0
+	};
 }
 function bytesToBase64(bytes) {
 	let binary = "";
@@ -2243,6 +3058,7 @@ function wireToLocal(envelope, data) {
 		schemaVer: envelope.schema_ver,
 		deleted: envelope.deleted,
 		authorId: envelope.author_id,
+		versionId: envelope.version_id ?? "",
 		createdAt: envelope.created_at,
 		updatedAt: envelope.updated_at,
 		data
@@ -2564,8 +3380,8 @@ var ContactsEngine = class {
 	async history(id) {
 		const local = await getContact(id);
 		if (!local) return [];
-		const readable = (await this.deps.sync.versions(local.spaceId, id)).filter((envelope) => !envelope.deleted && envelope.blob);
-		const rows = await this.toDecryptRows(readable);
+		const readable = (await this.deps.sync.versions(local.spaceId, id)).filter((version) => version.blob);
+		const rows = await this.toDecryptVersions(readable);
 		const decrypted = await this.deps.crypto.spaceDecryptBatch(COLLECTION$1, local.spaceId, rows.map((row) => ({
 			header: row.header,
 			blob: row.blob
@@ -2574,12 +3390,15 @@ var ContactsEngine = class {
 		for (let i = 0; i < rows.length; i++) {
 			const result = decrypted[i];
 			if (result.error !== void 0) continue;
-			const envelope = rows[i].envelope;
+			const version = rows[i].version;
+			const data = decodeVersion(result.plaintext);
 			out.push({
-				seq: envelope.seq,
-				createdAt: envelope.created_at,
-				authorId: envelope.author_id,
-				data: decodeRow(result.plaintext)
+				versionId: version.version_id,
+				parentIds: data.parent_ids ?? [],
+				seq: version.seq,
+				createdAt: version.created_at,
+				authorId: version.author_id,
+				data
 			});
 		}
 		return out;
@@ -2608,6 +3427,7 @@ var ContactsEngine = class {
 			updated_at: now
 		};
 		const state = await getSpaceState(targetSpace);
+		const version = this.mintVersion(data, parentsOf(existing), now);
 		await putContact({
 			id,
 			spaceId: targetSpace,
@@ -2616,6 +3436,7 @@ var ContactsEngine = class {
 			schemaVer: 1,
 			deleted: false,
 			authorId: this.deps.ownUserId,
+			versionId: version.versionId,
 			createdAt: data.created_at,
 			updatedAt: now,
 			data
@@ -2627,11 +3448,55 @@ var ContactsEngine = class {
 			deleted: false,
 			data,
 			updatedAt: now,
-			attempts: 0
+			attempts: 0,
+			versions: [version]
 		});
 		this.emit("changed");
 		this.drainOutbox();
 		return id;
+	}
+	/**
+	* Branches from an earlier version: its content becomes the new head, and the
+	* lineage forks at that version rather than continuing the chain.
+	*/
+	async restoreVersion(id, versionId) {
+		const local = await getContact(id);
+		if (!local) throw new Error("contact not found");
+		const target = (await this.history(id)).find((entry) => entry.versionId === versionId);
+		if (!target) throw new Error("version not found");
+		const now = (/* @__PURE__ */ new Date()).toISOString();
+		const data = {
+			...local.data,
+			...contactFieldsOf(target.data),
+			id,
+			updated_at: now
+		};
+		const version = this.mintVersion(data, [versionId], now);
+		await putContact({
+			...local,
+			data,
+			versionId: version.versionId,
+			updatedAt: now
+		});
+		await putOutbox({
+			id,
+			spaceId: local.spaceId,
+			baseSeq: local.seq,
+			deleted: false,
+			data,
+			updatedAt: now,
+			attempts: 0,
+			versions: [version]
+		});
+		this.emit("changed");
+		this.drainOutbox();
+	}
+	mintVersion(data, parentIds, createdAt) {
+		const versionId = crypto.randomUUID();
+		return {
+			versionId,
+			data: versionFromContact(versionId, data, parentIds, createdAt)
+		};
 	}
 	/** Tombstones a contact (server drops the ciphertext). */
 	async trash(id) {
@@ -2650,7 +3515,8 @@ var ContactsEngine = class {
 			deleted: true,
 			data: existing.data,
 			updatedAt: now,
-			attempts: 0
+			attempts: 0,
+			versions: []
 		});
 		this.emit("changed");
 		this.drainOutbox();
@@ -2708,6 +3574,24 @@ var ContactsEngine = class {
 				authorUserId: envelope.author_id
 			},
 			blob: envelope.blob ? base64ToBytes(envelope.blob) : /* @__PURE__ */ new Uint8Array(0)
+		})));
+	}
+	/** Same shape as toDecryptRows, but bound to each entry's own version id. */
+	async toDecryptVersions(versions) {
+		return Promise.all(versions.map(async (version) => ({
+			version,
+			header: {
+				itemId: version.item_id,
+				versionId: version.version_id,
+				keyEpoch: version.key_epoch,
+				schemaVer: version.schema_ver,
+				baseSeq: version.base_seq,
+				deleted: version.deleted,
+				sig: version.sig ?? "",
+				signerPub: await this.deps.spaces.signerPubFor(version.author_id),
+				authorUserId: version.author_id
+			},
+			blob: version.blob ? base64ToBytes(version.blob) : /* @__PURE__ */ new Uint8Array(0)
 		})));
 	}
 	async applyEnvelopes(spaceId, envelopes) {
@@ -2776,6 +3660,7 @@ var ContactsEngine = class {
 			};
 			const plaintext = current.deleted ? /* @__PURE__ */ new Uint8Array(0) : encodeRow(current.data);
 			const sealed = await this.deps.crypto.spaceEncrypt(COLLECTION$1, state.id, header, plaintext);
+			const versions = await this.sealVersions(state, current);
 			const result = await this.deps.sync.push(state.id, {
 				itemId: current.id,
 				baseSeq: current.baseSeq,
@@ -2783,14 +3668,17 @@ var ContactsEngine = class {
 				schemaVer: 1,
 				deleted: current.deleted,
 				blob: current.deleted ? "" : bytesToBase64(sealed.blob),
-				sig: sealed.sig
+				sig: sealed.sig,
+				versions
 			});
 			if (result.status === "ok") {
 				const local = await getContact(current.id);
+				const head = current.versions[current.versions.length - 1];
 				if (local) await putContact({
 					...local,
 					seq: result.seq,
-					keyEpoch: state.keyEpoch
+					keyEpoch: state.keyEpoch,
+					versionId: head ? head.versionId : local.versionId
 				});
 				await deleteOutbox(current.id);
 				return;
@@ -2812,6 +3700,27 @@ var ContactsEngine = class {
 			itemId: current.id,
 			error: "push retries exhausted"
 		});
+	}
+	/** Each history entry is sealed under its own version-bound key and AAD. */
+	async sealVersions(state, entry) {
+		const sealed = [];
+		for (const version of entry.versions) {
+			const header = {
+				itemId: entry.id,
+				versionId: version.versionId,
+				keyEpoch: state.keyEpoch,
+				schemaVer: 1,
+				baseSeq: entry.baseSeq,
+				deleted: false
+			};
+			const row = await this.deps.crypto.spaceEncrypt(COLLECTION$1, state.id, header, encodeVersion(version.data));
+			sealed.push({
+				versionId: version.versionId,
+				blob: bytesToBase64(row.blob),
+				sig: row.sig
+			});
+		}
+		return sealed;
 	}
 	/**
 	* Conflict path: decrypt the server's current row, merge on device, rebase the
@@ -2840,16 +3749,29 @@ var ContactsEngine = class {
 			authorId: remote.author_id,
 			seq: remote.seq
 		});
+		const branch = current.versions[0];
+		const parents = [remote.version_id, branch?.versionId].filter((id) => typeof id === "string" && id.length > 0);
+		const mergeVersion = this.mintVersion(merged, parents, (/* @__PURE__ */ new Date()).toISOString());
 		const rebased = {
 			...current,
 			data: merged,
 			baseSeq: remote.seq,
-			attempts: current.attempts + 1
+			attempts: current.attempts + 1,
+			versions: branch ? [branch, mergeVersion] : [mergeVersion]
 		};
 		await putOutbox(rebased);
 		return rebased;
 	}
 };
+function parentsOf(existing) {
+	if (!existing || !existing.versionId) return [];
+	return [existing.versionId];
+}
+/** The Contact-shaped fields of a version, for restoring it as the new head. */
+function contactFieldsOf(version) {
+	const { id, contact_id, created_at, parent_ids, $unknown, ...fields } = version;
+	return fields;
+}
 //#endregion
 //#region src/vault/spaces.ts
 var VaultSpaces = class {
@@ -2984,7 +3906,12 @@ var VaultSync = class {
 			schema_ver: envelope.schemaVer,
 			deleted: envelope.deleted,
 			blob: envelope.blob,
-			sig: envelope.sig
+			sig: envelope.sig,
+			versions: envelope.versions.map((version) => ({
+				version_id: version.versionId,
+				blob: version.blob,
+				sig: version.sig
+			}))
 		}));
 		if (response.ok) {
 			const body = await response.json();
@@ -3067,6 +3994,9 @@ function createContactsVault(options) {
 				await engine.trash(String(message.id));
 				return { trashed: true };
 			case "contacts-history": return { versions: await engine.history(String(message.id)) };
+			case "contacts-restore-version":
+				await engine.restoreVersion(String(message.id), String(message.versionId));
+				return { restored: true };
 			default: throw new Error(`unknown contacts op: ${String(message.type)}`);
 		}
 	}
@@ -3080,7 +4010,11 @@ function queryOf(message) {
 //#endregion
 //#region src/vault/protocol.ts
 /** Ops that mutate data need a write-implying grant (contacts:write / :admin). */
-var WRITE_OPS = /* @__PURE__ */ new Set(["contacts-write", "contacts-trash"]);
+var WRITE_OPS = /* @__PURE__ */ new Set([
+	"contacts-write",
+	"contacts-trash",
+	"contacts-restore-version"
+]);
 function isContactsOp(type) {
 	return type.startsWith("contacts-");
 }
