@@ -58,6 +58,9 @@ func (handler *SignupHandler) Register(r chi.Router) {
 	r.Get("/auth/static/recovery-words.js", handler.serveStatic("recovery-words.js"))
 	r.Get("/auth/static/chat-ratchet.js", handler.serveStatic("chat-ratchet.js"))
 	r.Get("/auth/static/scope-keys.js", handler.serveStatic("scope-keys.js"))
+	r.Get("/auth/static/space-keys.js", handler.serveStatic("space-keys.js"))
+	// Vault-side E2EE contacts store, built from packages/sdk/src/vault.
+	r.Get("/auth/static/contacts-vault.js", handler.serveStatic("contacts-vault.js"))
 }
 
 type signupData struct {

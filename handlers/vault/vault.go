@@ -64,6 +64,17 @@ type vaultData struct {
 	// (neod) the vault brokers ai-* ops to. Derived from the base domain unless
 	// NEOD_URL overrides it.
 	DaemonURLJSON template.JS
+	// APIURLJSON is the JSON-quoted API origin. The vault syncs E2EE collections
+	// (contacts) itself, so the decrypted store never leaves this origin.
+	APIURLJSON template.JS
+}
+
+// apiURL is the API origin the vault fetches for E2EE collection sync.
+func apiURL() string {
+	if v := os.Getenv("API_URL"); v != "" {
+		return v
+	}
+	return config.ServiceURL("api")
 }
 
 // daemonURL is the AI runtime daemon origin the vault fetches for ai-* ops.
@@ -91,12 +102,14 @@ func (h *Handler) appName(r *http.Request) string {
 func (h *Handler) serveVault(w http.ResponseWriter, r *http.Request) {
 	originsJSON, _ := json.Marshal(h.allowedOrigins)
 	daemonJSON, _ := json.Marshal(daemonURL())
+	apiJSON, _ := json.Marshal(apiURL())
 
 	var buf bytes.Buffer
 	if err := vaultTmpl.Execute(&buf, vaultData{
 		AllowedOriginsJSON: template.JS(originsJSON),
 		AppName:            h.appName(r),
 		DaemonURLJSON:      template.JS(daemonJSON),
+		APIURLJSON:         template.JS(apiJSON),
 	}); err != nil {
 		http.Error(w, "render error", http.StatusInternalServerError)
 		return

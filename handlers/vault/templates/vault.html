@@ -15,11 +15,19 @@
 		<!-- Double Ratchet engine, shared verbatim with the test suite. -->
 		<script type="module">
 			import { createRatchet } from '/auth/static/chat-ratchet.js';
-			import { createScopeKeys, decryptableLabels } from '/auth/static/scope-keys.js';
+			import { createScopeKeys, decryptableLabels, writableLabels } from '/auth/static/scope-keys.js';
+			import { createSpaceKeys } from '/auth/static/space-keys.js';
 			window.__createRatchet = createRatchet;
 			window.__createScopeKeys = createScopeKeys;
 			window.__decryptableLabels = decryptableLabels;
+			window.__writableLabels = writableLabels;
+			window.__createSpaceKeys = createSpaceKeys;
 		</script>
+		<!-- E2EE contacts store (IndexedDB + codec + query + sync). Built from
+		     packages/sdk/src/vault by `bun run build:vault`; it exposes
+		     window.__createContactsVault. The store lives here so embedding apps
+		     can never touch the decrypted rows. -->
+		<script type="module" src="/auth/static/contacts-vault.js"></script>
 	</head>
 	<body>
 		<div id="card" class="card">
@@ -51,6 +59,8 @@
 				const ALLOWED_ORIGINS = {{.AllowedOriginsJSON}};
 				// Local AI runtime daemon origin the vault brokers ai-* ops to.
 				const DAEMON_URL = {{.DaemonURLJSON}};
+				// API origin the vault fetches directly for E2EE collection sync.
+				const API_URL = {{.APIURLJSON}};
 
 				const card = document.getElementById('card');
 				const passwordRow = document.getElementById('password-row');
@@ -99,7 +109,21 @@
 				const scopeKeyCache = new Map();
 				let grantedScopes = [];
 				let allowedLabels = new Set();
+				let allowedWriteLabels = new Set();
 				const LEGACY_LABEL = 'legacy';
+				// Bare user id of the token holder, from introspection — never taken
+				// from the embedding app, which could claim to be someone else.
+				let ownUserId = null;
+
+				// ── Space keys (E2EE shared spaces) ────────────────────────────────
+				// Account-level Ed25519 signing keypair (AMK-derived, same on every
+				// device) signs envelopes and wrapped space keys. Unwrapped space keys
+				// live in memory only, keyed spaceId:epoch — re-derived each session
+				// from the server-stored wrapped copies. Pins (Proton pattern) persist
+				// in the vault's own IndexedDB partition.
+				let spaceApi = null;
+				let spaceSignKp = null;
+				const spaceKeyCache = new Map();
 
 				function post(target, msg, transfer) {
 					if (!target) return;
@@ -162,9 +186,12 @@
 					// yet still derive per-scope keypairs lazily for the lifetime of the
 					// session (no more sensitive than myPrivKey, which is already resident).
 					scopeMaster = scopeKeysApi.deriveScopeMaster(amkBytes);
+					// Space signing identity must derive before the AMK is zeroed.
+					spaceSignKp = spaceApi.deriveSigningKeypair(amkBytes);
 					sodium.memzero(seed);
 					sodium.memzero(amkBytes);
 					scopeKeyCache.clear();
+					spaceKeyCache.clear();
 					await publishPublicKey();
 					await publishScopeKeys();
 				}
@@ -387,15 +414,25 @@
 
 				// Best-effort: publish the derived public key so senders can seal DEKs
 				// to this account. Non-fatal if it fails — encrypt/decrypt still work.
+				// The key directory lives on the API origin, so these go out with the
+				// embedding client's bearer token — a relative path would hit the oauth
+				// origin, and cookies can't ride a wildcard-CORS request anyway.
+				function apiFetch(path, init) {
+					const options = init || {};
+					const headers = Object.assign({}, options.headers);
+					if (accessToken) headers.Authorization = 'Bearer ' + accessToken;
+					return fetch(API_URL + path, Object.assign({}, options, { headers }));
+				}
+
 				async function publishPublicKey() {
 					try {
 						const pub = sodium.to_base64(myPubKey, b64);
 						const fingerprint = sodium.to_base64(sodium.crypto_generichash(32, myPubKey), b64);
-						await fetch('/api/v1/keys/public', {
+						const signPub = spaceSignKp ? sodium.to_base64(spaceSignKp.publicKey, b64) : '';
+						await apiFetch('/api/v1/keys/public', {
 							method: 'PUT',
-							credentials: 'include',
 							headers: { 'Content-Type': 'application/json' },
-							body: JSON.stringify({ public_key: pub, fingerprint })
+							body: JSON.stringify({ public_key: pub, fingerprint, sign_public_key: signPub })
 						});
 					} catch (_) {
 						// ignore — directory publish is not required for local crypto
@@ -410,9 +447,8 @@
 						if (label === LEGACY_LABEL) continue;
 						try {
 							const kp = keypairForLabel(label);
-							await fetch('/api/v1/keys/scope-public', {
+							await apiFetch('/api/v1/keys/scope-public', {
 								method: 'PUT',
-								credentials: 'include',
 								headers: { 'Content-Type': 'application/json' },
 								body: JSON.stringify({ scope: label, public_key: sodium.to_base64(kp.publicKey, b64) })
 							});
@@ -429,6 +465,8 @@
 				async function introspectScopes(token) {
 					grantedScopes = [];
 					allowedLabels = new Set();
+					allowedWriteLabels = new Set();
+					ownUserId = null;
 					if (!token) return;
 					try {
 						const res = await fetch('/oauth/introspect', {
@@ -442,6 +480,8 @@
 						if (!body.active) return;
 						grantedScopes = String(body.scope || '').split(' ').filter(Boolean);
 						allowedLabels = window.__decryptableLabels(grantedScopes);
+						allowedWriteLabels = window.__writableLabels(grantedScopes);
+						ownUserId = body.sub ? String(body.sub) : null;
 					} catch (_) {
 						// ignore — caller is left with no decryption capability
 					}
@@ -509,11 +549,239 @@
 					return out;
 				}
 
+				// ── Space ops ───────────────────────────────────────────────────────
+				// Unwrapped space keys are cached in memory only, keyed spaceId:epoch.
+				function spaceCacheKey(spaceId, epoch) {
+					return spaceId + ':' + epoch;
+				}
+				function cachedSpaceKey(spaceId, epoch) {
+					const key = spaceKeyCache.get(spaceCacheKey(spaceId, epoch));
+					if (!key) throw new Error('space key not unlocked (epoch ' + epoch + ')');
+					return key;
+				}
+
+				// Pin bookkeeping (Proton pattern): first sight of a space key epoch or
+				// an author signer key pins it; any later mismatch is a hard error the
+				// app must surface — it means the server or inviter swapped keys.
+				async function checkSpacePin(spaceId, epoch, fingerprint, signerPub) {
+					const pinKey = 'space-pin:' + spaceId + ':' + epoch;
+					const pinned = await idbGet(pinKey);
+					if (!pinned) {
+						await idbSet(pinKey, { fingerprint, signerPub });
+						return;
+					}
+					if (pinned.fingerprint !== fingerprint) throw new Error('space key pin mismatch');
+					if (pinned.signerPub !== signerPub) throw new Error('space signer pin mismatch');
+				}
+				async function checkAuthorPin(userId, signerPub) {
+					if (!userId) return;
+					const pinKey = 'author-pin:' + userId;
+					const pinned = await idbGet(pinKey);
+					if (!pinned) {
+						await idbSet(pinKey, signerPub);
+						return;
+					}
+					if (pinned !== signerPub) throw new Error('author signer pin mismatch');
+				}
+
+				// Mint a space key (epoch 1), self-wrap to the collection scope key.
+				async function spaceKeyCreate(msg) {
+					const kp = keypairForLabel(msg.collection);
+					const spaceKey = spaceApi.mintSpaceKey();
+					const wrappedKey = spaceApi.wrapSpaceKey(spaceKey, sodium.to_base64(kp.publicKey, b64));
+					const signature = spaceApi.signWrap(msg.spaceId, msg.userId, 1, spaceKey, spaceSignKp.privateKey);
+					const fingerprint = spaceApi.keyFingerprint(spaceKey);
+					const signerPub = sodium.to_base64(spaceSignKp.publicKey, b64);
+					spaceKeyCache.set(spaceCacheKey(msg.spaceId, 1), spaceKey);
+					await checkSpacePin(msg.spaceId, 1, fingerprint, signerPub);
+					return { wrappedKey, keyEpoch: 1, signature, signerPub, keyFingerprint: fingerprint };
+				}
+
+				// Unseal a membership wrap, verify the inviter's signature, pin, and
+				// re-sign with our own key (the accept pin the server stores).
+				async function spaceKeyUnwrap(msg) {
+					const kp = keypairForLabel(msg.collection);
+					const spaceKey = spaceApi.unwrapSpaceKey(msg.wrappedKey, kp);
+					if (!spaceApi.verifyWrap(msg.spaceId, msg.userId, msg.keyEpoch, spaceKey, msg.signature, msg.signerPub)) {
+						throw new Error('bad space key signature');
+					}
+					const fingerprint = spaceApi.keyFingerprint(spaceKey);
+					await checkSpacePin(msg.spaceId, msg.keyEpoch, fingerprint, msg.signerPub);
+					if (msg.inviterUserId) await checkAuthorPin(msg.inviterUserId, msg.signerPub);
+					spaceKeyCache.set(spaceCacheKey(msg.spaceId, msg.keyEpoch), spaceKey);
+					const mySignature = spaceApi.signWrap(msg.spaceId, msg.userId, msg.keyEpoch, spaceKey, spaceSignKp.privateKey);
+					return {
+						keyFingerprint: fingerprint,
+						mySignature,
+						mySignerPub: sodium.to_base64(spaceSignKp.publicKey, b64)
+					};
+				}
+
+				// Wrap an already-unlocked epoch key to another member (invite).
+				function spaceKeyWrap(msg) {
+					const spaceKey = cachedSpaceKey(msg.spaceId, msg.keyEpoch);
+					return {
+						wrappedKey: spaceApi.wrapSpaceKey(spaceKey, msg.recipientPubKey),
+						signature: spaceApi.signWrap(msg.spaceId, msg.memberUserId, msg.keyEpoch, spaceKey, spaceSignKp.privateKey),
+						signerPub: sodium.to_base64(spaceSignKp.publicKey, b64)
+					};
+				}
+
+				// Mint the next epoch's key and wrap it for every remaining member.
+				async function spaceKeyRotate(msg) {
+					const spaceKey = spaceApi.mintSpaceKey();
+					const fingerprint = spaceApi.keyFingerprint(spaceKey);
+					const signerPub = sodium.to_base64(spaceSignKp.publicKey, b64);
+					const wraps = [];
+					for (const recipient of msg.recipients) {
+						wraps.push({
+							userId: recipient.userId,
+							wrappedKey: spaceApi.wrapSpaceKey(spaceKey, recipient.pubKey),
+							signature: spaceApi.signWrap(msg.spaceId, recipient.userId, msg.newEpoch, spaceKey, spaceSignKp.privateKey)
+						});
+					}
+					spaceKeyCache.set(spaceCacheKey(msg.spaceId, msg.newEpoch), spaceKey);
+					await checkSpacePin(msg.spaceId, msg.newEpoch, fingerprint, signerPub);
+					return { wraps, signerPub, keyFingerprint: fingerprint };
+				}
+
+				// Re-verify every membership wrap against stored pins (call at start).
+				async function spacePinsVerify(msg) {
+					const results = [];
+					for (const entry of msg.spaces) {
+						try {
+							await spaceKeyUnwrap({ ...entry, collection: msg.collection });
+							results.push({ spaceId: entry.spaceId, keyEpoch: entry.keyEpoch, ok: true });
+						} catch (err) {
+							results.push({
+								spaceId: entry.spaceId,
+								keyEpoch: entry.keyEpoch,
+								ok: false,
+								error: String(err && err.message)
+							});
+						}
+					}
+					return { results };
+				}
+
+				async function rowAesKey(spaceId, epoch, itemId) {
+					const spaceKey = cachedSpaceKey(spaceId, epoch);
+					const rowKey = spaceApi.deriveRowKey(spaceKey, itemId);
+					const key = await aesKeyFromDek(rowKey);
+					sodium.memzero(rowKey);
+					return key;
+				}
+
+				function rowHeader(spaceId, item) {
+					return {
+						itemId: item.itemId,
+						spaceId,
+						collection: item.collection,
+						keyEpoch: item.keyEpoch,
+						schemaVer: item.schemaVer,
+						baseSeq: item.baseSeq,
+						deleted: !!item.deleted
+					};
+				}
+
+				// Encrypt one row: AES-GCM(iv‖ct) under the per-row key, AAD-bound
+				// header, Ed25519 envelope signature. Tombstones sign an empty blob.
+				async function spaceEncryptOne(spaceId, collection, item, plainBytes) {
+					const aad = spaceApi.buildRowAad(rowHeader(spaceId, { ...item, collection }));
+					let blob = new Uint8Array(0);
+					if (!item.deleted) {
+						const key = await rowAesKey(spaceId, item.keyEpoch, item.itemId);
+						const iv = crypto.getRandomValues(new Uint8Array(12));
+						const ct = new Uint8Array(
+							await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: aad }, key, plainBytes)
+						);
+						blob = new Uint8Array(12 + ct.length);
+						blob.set(iv, 0);
+						blob.set(ct, 12);
+					}
+					const sig = spaceApi.signEnvelope(aad, blob, spaceSignKp.privateKey);
+					return { blob, sig, signerPub: sodium.to_base64(spaceSignKp.publicKey, b64) };
+				}
+
+				// Decrypt one row: verify author signature (pinned per user), then
+				// AES-GCM open with the AAD — any header tamper fails the open.
+				async function spaceDecryptOne(spaceId, collection, item, blobBytes) {
+					const aad = spaceApi.buildRowAad(rowHeader(spaceId, { ...item, collection }));
+					if (!spaceApi.verifyEnvelope(aad, blobBytes, item.sig, item.signerPub)) {
+						throw new Error('bad envelope signature');
+					}
+					await checkAuthorPin(item.authorUserId, item.signerPub);
+					if (item.deleted) return new Uint8Array(0);
+					const key = await rowAesKey(spaceId, item.keyEpoch, item.itemId);
+					const iv = blobBytes.slice(0, 12);
+					const ct = blobBytes.slice(12);
+					return new Uint8Array(
+						await crypto.subtle.decrypt({ name: 'AES-GCM', iv, additionalData: aad }, key, ct)
+					);
+				}
+
+				// Batch forms: one concatenated buffer + per-item offsets, so a 500-row
+				// sync page costs one postMessage round-trip, not 500.
+				async function spaceEncryptBatch(msg) {
+					const data = new Uint8Array(msg.data);
+					const parts = [];
+					let total = 0;
+					for (const item of msg.items) {
+						const plain = data.slice(item.offset, item.offset + item.length);
+						const part = await spaceEncryptOne(msg.spaceId, msg.collection, item, plain);
+						parts.push({ item, part });
+						total += part.blob.length;
+					}
+					const out = new Uint8Array(total);
+					const results = [];
+					let cursor = 0;
+					for (const { item, part } of parts) {
+						out.set(part.blob, cursor);
+						results.push({
+							itemId: item.itemId,
+							offset: cursor,
+							length: part.blob.length,
+							sig: part.sig,
+							signerPub: part.signerPub
+						});
+						cursor += part.blob.length;
+					}
+					return { results, buffer: out.buffer };
+				}
+
+				async function spaceDecryptBatch(msg) {
+					const data = new Uint8Array(msg.data);
+					const parts = [];
+					let total = 0;
+					for (const item of msg.items) {
+						const blob = data.slice(item.offset, item.offset + item.length);
+						try {
+							const plain = await spaceDecryptOne(msg.spaceId, msg.collection, item, blob);
+							parts.push({ item, plain, error: null });
+							total += plain.length;
+						} catch (err) {
+							parts.push({ item, plain: null, error: String(err && err.message) });
+						}
+					}
+					const out = new Uint8Array(total);
+					const results = [];
+					let cursor = 0;
+					for (const { item, plain, error } of parts) {
+						if (error) {
+							results.push({ itemId: item.itemId, error });
+							continue;
+						}
+						out.set(plain, cursor);
+						results.push({ itemId: item.itemId, offset: cursor, length: plain.length });
+						cursor += plain.length;
+					}
+					return { results, buffer: out.buffer };
+				}
+
 				// ── Unlock paths ────────────────────────────────────────────────────
 				async function fetchWrappedAmk(publicKeyB64) {
-					const res = await fetch(
-						'/api/v1/keys/devices/me?public_key=' + encodeURIComponent(publicKeyB64),
-						{ credentials: 'include' }
+					const res = await apiFetch(
+						'/api/v1/keys/devices/me?public_key=' + encodeURIComponent(publicKeyB64)
 					);
 					if (!res.ok) return null;
 					const body = await res.json();
@@ -536,9 +804,8 @@
 
 				async function unlockWithPassword(password) {
 					if (!email) throw new Error('missing email');
-					const cres = await fetch(
-						'/api/v1/auth/key-challenge?email=' + encodeURIComponent(email),
-						{ credentials: 'include' }
+					const cres = await apiFetch(
+						'/api/v1/auth/key-challenge?email=' + encodeURIComponent(email)
 					);
 					if (!cres.ok) throw new Error('account has no encryption key set up');
 					const ch = await cres.json();
@@ -561,9 +828,8 @@
 					const pub = sodium.to_base64(keypair.publicKey, b64);
 					const priv = sodium.to_base64(keypair.privateKey, b64);
 					const wrappedForDevice = sodium.crypto_box_seal(amk, keypair.publicKey);
-					const reg = await fetch('/api/v1/keys/devices', {
+					const reg = await apiFetch('/api/v1/keys/devices', {
 						method: 'POST',
-						credentials: 'include',
 						headers: { 'Content-Type': 'application/json' },
 						body: JSON.stringify({
 							public_key: pub,
@@ -621,6 +887,83 @@
 					}
 				}
 
+				// ── Contacts store (lives in this origin, never in the app) ─────────
+				// The decrypted rows, their IndexedDB partition and the query engine
+				// belong to the vault. Apps only send scope-checked ops; even the sync
+				// fetches to the API happen here, so ciphertext and plaintext alike
+				// stay out of the embedding page.
+				let contactsVault = null;
+				const tokenWaiters = new Map();
+				let nextTokenRequestId = 1;
+
+				// The vault holds the app's access token but not its refresh token, so
+				// a 401 on the sync path is answered by asking the embedder to refresh.
+				function requestFreshToken() {
+					if (!parentOrigin) return Promise.resolve(null);
+					const id = nextTokenRequestId++;
+					return new Promise((resolve) => {
+						const timer = setTimeout(() => {
+							tokenWaiters.delete(id);
+							resolve(null);
+						}, 15000);
+						tokenWaiters.set(id, (token) => {
+							clearTimeout(timer);
+							accessToken = token;
+							resolve(token);
+						});
+						post(parentOrigin, { type: 'vault-token-request', id });
+					});
+				}
+
+				// In-process crypto for the store: the same space operations the app
+				// reaches over postMessage, called directly with resident keys.
+				function contactsCrypto() {
+					return {
+						spaceKeyCreate: (collection, spaceId, userId) =>
+							spaceKeyCreate({ collection, spaceId, userId }),
+						spaceKeyUnwrap: (collection, spaceId, wrap) =>
+							spaceKeyUnwrap({ collection, spaceId, ...wrap }),
+						spaceEncrypt: (collection, spaceId, header, plaintext) =>
+							spaceEncryptOne(spaceId, collection, header, plaintext),
+						spaceDecryptBatch: async (collection, spaceId, rows) => {
+							const out = [];
+							for (const row of rows) {
+								try {
+									out.push({ plaintext: await spaceDecryptOne(spaceId, collection, row.header, row.blob) });
+								} catch (err) {
+									out.push({ error: String(err && err.message) });
+								}
+							}
+							return out;
+						}
+					};
+				}
+
+				function contactsStore() {
+					// The store binds the token holder's id (envelope authorship); without
+					// a verified subject there is nobody to write as.
+					if (!ownUserId) throw new Error('no verified user for this token');
+					if (!contactsVault) {
+						contactsVault = window.__createContactsVault({
+							apiUrl: API_URL,
+							ownUserId: ownUserId,
+							crypto: contactsCrypto(),
+							getToken: () => accessToken,
+							refreshToken: requestFreshToken,
+							emit: (event, detail) => post(parentOrigin, { type: 'contacts-event', event, detail })
+						});
+					}
+					return contactsVault;
+				}
+
+				// Capability gate for a contacts op: reads need a read-implying grant
+				// for the collection label, writes a write-implying one.
+				function contactsOpAllowed(type) {
+					if (!allowedLabels.has('contacts')) return false;
+					if (!window.__contactsOpNeedsWrite(type)) return true;
+					return allowedWriteLabels.has('contacts');
+				}
+
 				// ── Message bridge ──────────────────────────────────────────────────
 				window.addEventListener('message', async (e) => {
 					if (!ALLOWED_ORIGINS.includes(e.origin)) return;
@@ -633,6 +976,9 @@
 						parentOrigin = e.origin;
 						email = msg.email || null;
 						accessToken = msg.token || null;
+						// A fresh init may carry a different subject or scope set; drop the
+						// store so it rebinds instead of writing as the previous holder.
+						contactsVault = null;
 						// Bind this session's decryption capability to the embedding
 						// client's granted OAuth scopes (from its access token). Done
 						// before unlock so publishScopeKeys covers the granted labels.
@@ -797,6 +1143,106 @@
 						return;
 					}
 
+					if (msg.type === 'vault-token') {
+						const waiter = tokenWaiters.get(msg.id);
+						if (waiter) {
+							tokenWaiters.delete(msg.id);
+							waiter(msg.token || null);
+						}
+						return;
+					}
+
+					if (msg.type && window.__isContactsOp(msg.type)) {
+						// Space keys must be resident: the store decrypts on every read
+						// path, so a locked vault can answer nothing.
+						if (!spaceSignKp) {
+							e.source.postMessage({ type: 'result', id: msg.id, ok: false, error: 'locked' }, e.origin);
+							return;
+						}
+						if (!contactsOpAllowed(msg.type)) {
+							e.source.postMessage({ type: 'result', id: msg.id, ok: false, error: 'scope_not_granted' }, e.origin);
+							return;
+						}
+						try {
+							const result = await contactsStore().handle(msg);
+							e.source.postMessage({ type: 'result', id: msg.id, ok: true, ...result }, e.origin);
+						} catch (err) {
+							e.source.postMessage(
+								{ type: 'result', id: msg.id, ok: false, error: String(err && err.message) },
+								e.origin
+							);
+						}
+						return;
+					}
+
+					if (msg.type && msg.type.indexOf('space-') === 0) {
+						if (!spaceSignKp) {
+							e.source.postMessage({ type: 'result', id: msg.id, ok: false, error: 'locked' }, e.origin);
+							return;
+						}
+						// Capability gate: the collection is the encryption label. A caller
+						// whose token lacks a read grant for it gets nothing.
+						if (!msg.collection || !allowedLabels.has(msg.collection)) {
+							e.source.postMessage({ type: 'result', id: msg.id, ok: false, error: 'scope_not_granted' }, e.origin);
+							return;
+						}
+						try {
+							if (msg.type === 'space-encrypt-batch') {
+								const out = await spaceEncryptBatch(msg);
+								e.source.postMessage(
+									{ type: 'result', id: msg.id, ok: true, items: out.results, data: out.buffer },
+									e.origin,
+									[out.buffer]
+								);
+								return;
+							}
+							if (msg.type === 'space-decrypt-batch') {
+								const out = await spaceDecryptBatch(msg);
+								e.source.postMessage(
+									{ type: 'result', id: msg.id, ok: true, items: out.results, data: out.buffer },
+									e.origin,
+									[out.buffer]
+								);
+								return;
+							}
+							let result;
+							if (msg.type === 'space-key-create') {
+								result = await spaceKeyCreate(msg);
+							} else if (msg.type === 'space-key-unwrap') {
+								result = await spaceKeyUnwrap(msg);
+							} else if (msg.type === 'space-key-wrap') {
+								result = spaceKeyWrap(msg);
+							} else if (msg.type === 'space-key-rotate') {
+								result = await spaceKeyRotate(msg);
+							} else if (msg.type === 'space-pins-verify') {
+								result = await spacePinsVerify(msg);
+							} else if (msg.type === 'space-encrypt') {
+								const part = await spaceEncryptOne(msg.spaceId, msg.collection, msg, new Uint8Array(msg.data));
+								const buf = part.blob.buffer;
+								e.source.postMessage(
+									{ type: 'result', id: msg.id, ok: true, data: buf, sig: part.sig, signerPub: part.signerPub },
+									e.origin,
+									[buf]
+								);
+								return;
+							} else if (msg.type === 'space-decrypt') {
+								const plain = await spaceDecryptOne(msg.spaceId, msg.collection, msg, new Uint8Array(msg.data));
+								const buf = plain.buffer;
+								e.source.postMessage({ type: 'result', id: msg.id, ok: true, data: buf }, e.origin, [buf]);
+								return;
+							} else {
+								throw new Error('unknown space op');
+							}
+							e.source.postMessage({ type: 'result', id: msg.id, ok: true, ...result }, e.origin);
+						} catch (err) {
+							e.source.postMessage(
+								{ type: 'result', id: msg.id, ok: false, error: String(err && err.message) },
+								e.origin
+							);
+						}
+						return;
+					}
+
 					if (msg.type === 'encrypt' || msg.type === 'decrypt' || msg.type === 'rewrap') {
 						if (!myPrivKey) {
 							e.source.postMessage({ type: 'result', id: msg.id, ok: false, error: 'locked' }, e.origin);
@@ -847,6 +1293,7 @@
 					b64 = sodium.base64_variants.ORIGINAL;
 					// Scope-key engine — ready before any unlock derives scopeMaster.
 					scopeKeysApi = window.__createScopeKeys(sodium);
+					spaceApi = window.__createSpaceKeys(sodium);
 					// Announce readiness so the embedder knows it can send vault-init.
 					// targetOrigin '*' is safe: the message carries no secret.
 					window.parent.postMessage({ type: 'vault-loaded' }, '*');

@@ -25,6 +25,8 @@ const SCOPE_KEYPAIR_PREFIX = 'nw-scope-keypair-v1:';
 
 // Actions that imply the holder may read (and therefore decrypt) a scope's data.
 const READ_ACTIONS = new Set(['read', 'write', 'admin', '*']);
+// Actions that imply the holder may create or modify a scope's data.
+const WRITE_ACTIONS = new Set(['write', 'admin', '*']);
 
 /**
  * Parse an OAuth scope string of the form `[organization:]entity:action`.
@@ -50,10 +52,23 @@ export function parseScope(scope) {
  * granted scope for it carries a read-implying action.
  */
 export function decryptableLabels(grantedScopes) {
+	return labelsFor(grantedScopes, READ_ACTIONS);
+}
+
+/**
+ * The labels the caller may write. Data stores held by the key-holder (e.g. the
+ * contacts store inside the Vault) gate mutations on this, so a `contacts:read`
+ * client can search its data but never change it.
+ */
+export function writableLabels(grantedScopes) {
+	return labelsFor(grantedScopes, WRITE_ACTIONS);
+}
+
+function labelsFor(grantedScopes, actions) {
 	const labels = new Set();
 	for (const scope of grantedScopes || []) {
 		const parsed = parseScope(scope);
-		if (parsed.action && READ_ACTIONS.has(parsed.action)) {
+		if (parsed.action && actions.has(parsed.action)) {
 			labels.add(parsed.label);
 		}
 	}
