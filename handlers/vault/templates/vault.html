@@ -664,16 +664,22 @@
 					return { results };
 				}
 
-				async function rowAesKey(spaceId, epoch, itemId) {
-					const spaceKey = cachedSpaceKey(spaceId, epoch);
-					const rowKey = spaceApi.deriveRowKey(spaceKey, itemId);
-					const key = await aesKeyFromDek(rowKey);
-					sodium.memzero(rowKey);
+				// A history entry carries versionId and derives its own key and AAD;
+				// everything else is a row of the collection itself.
+				async function envelopeAesKey(spaceId, item) {
+					const spaceKey = cachedSpaceKey(spaceId, item.keyEpoch);
+					let derived = spaceApi.deriveRowKey(spaceKey, item.itemId);
+					if (item.versionId) {
+						derived = spaceApi.deriveVersionKey(spaceKey, item.versionId);
+					}
+					const key = await aesKeyFromDek(derived);
+					sodium.memzero(derived);
 					return key;
 				}
 
 				function rowHeader(spaceId, item) {
 					return {
+						versionId: item.versionId,
 						itemId: item.itemId,
 						spaceId,
 						collection: item.collection,
@@ -684,13 +690,19 @@
 					};
 				}
 
+				function envelopeAad(spaceId, collection, item) {
+					const header = rowHeader(spaceId, { ...item, collection });
+					if (header.versionId) return spaceApi.buildVersionAad(header);
+					return spaceApi.buildRowAad(header);
+				}
+
 				// Encrypt one row: AES-GCM(iv‖ct) under the per-row key, AAD-bound
 				// header, Ed25519 envelope signature. Tombstones sign an empty blob.
 				async function spaceEncryptOne(spaceId, collection, item, plainBytes) {
-					const aad = spaceApi.buildRowAad(rowHeader(spaceId, { ...item, collection }));
+					const aad = envelopeAad(spaceId, collection, item);
 					let blob = new Uint8Array(0);
 					if (!item.deleted) {
-						const key = await rowAesKey(spaceId, item.keyEpoch, item.itemId);
+						const key = await envelopeAesKey(spaceId, item);
 						const iv = crypto.getRandomValues(new Uint8Array(12));
 						const ct = new Uint8Array(
 							await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: aad }, key, plainBytes)
@@ -706,13 +718,13 @@
 				// Decrypt one row: verify author signature (pinned per user), then
 				// AES-GCM open with the AAD — any header tamper fails the open.
 				async function spaceDecryptOne(spaceId, collection, item, blobBytes) {
-					const aad = spaceApi.buildRowAad(rowHeader(spaceId, { ...item, collection }));
+					const aad = envelopeAad(spaceId, collection, item);
 					if (!spaceApi.verifyEnvelope(aad, blobBytes, item.sig, item.signerPub)) {
 						throw new Error('bad envelope signature');
 					}
 					await checkAuthorPin(item.authorUserId, item.signerPub);
 					if (item.deleted) return new Uint8Array(0);
-					const key = await rowAesKey(spaceId, item.keyEpoch, item.itemId);
+					const key = await envelopeAesKey(spaceId, item);
 					const iv = blobBytes.slice(0, 12);
 					const ct = blobBytes.slice(12);
 					return new Uint8Array(

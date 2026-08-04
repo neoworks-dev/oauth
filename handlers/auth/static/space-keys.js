@@ -20,9 +20,13 @@ const SIGNING_CONTEXT = 'nw-space-signing-v1';
 // BLAKE2b is the codebase-standard KDF (see scope-keys.js); equivalent in role
 // to HKDF here.
 const ROW_KEY_PREFIX = 'nw-space-item:';
-// Domain separators for the two signature contexts and the row AAD.
+// History entries derive their own key, so a version blob can never be opened
+// with the key of the row it belongs to.
+const VERSION_KEY_PREFIX = 'nw-space-version:';
+// Domain separators for the two signature contexts and the two AADs.
 const WRAP_CONTEXT = 'nw-space-key-v1';
 const AAD_CONTEXT = 'nw-space-item-v1';
+const VERSION_AAD_CONTEXT = 'nw-space-version-v1';
 
 export function createSpaceKeys(sodium) {
 	const b64 = sodium.base64_variants.ORIGINAL;
@@ -103,6 +107,30 @@ export function createSpaceKeys(sodium) {
 		return sodium.crypto_generichash(32, sodium.from_string(ROW_KEY_PREFIX + itemId), spaceKeyBytes);
 	}
 
+	function deriveVersionKey(spaceKeyBytes, versionId) {
+		return sodium.crypto_generichash(
+			32,
+			sodium.from_string(VERSION_KEY_PREFIX + versionId),
+			spaceKeyBytes
+		);
+	}
+
+	// A history entry binds its own version id on top of the row header, so a
+	// version blob cannot be spliced onto another version of the same row.
+	function buildVersionAad(header) {
+		return sodium.from_string(
+			VERSION_AAD_CONTEXT +
+				'|' + header.versionId +
+				'|' + header.itemId +
+				'|' + header.spaceId +
+				'|' + header.collection +
+				'|' + header.keyEpoch +
+				'|' + header.schemaVer +
+				'|' + header.baseSeq +
+				'|' + (header.deleted ? '1' : '0')
+		);
+	}
+
 	// Envelope signature: Ed25519 over blake2b(AAD ‖ blob). Tombstones sign the
 	// AAD with an empty blob.
 	function envelopeDigest(aadBytes, blobBytes) {
@@ -139,7 +167,9 @@ export function createSpaceKeys(sodium) {
 		signWrap,
 		verifyWrap,
 		buildRowAad,
+		buildVersionAad,
 		deriveRowKey,
+		deriveVersionKey,
 		signEnvelope,
 		verifyEnvelope,
 		keyFingerprint

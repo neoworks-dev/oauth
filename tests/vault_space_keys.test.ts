@@ -133,6 +133,40 @@ describe('space keys', () => {
     }
   })
 
+  test('version blobs use their own key and AAD, so they cannot be spliced', async () => {
+    const spaceKey = spaceApi.mintSpaceKey()
+    const versionHeader = { ...header, versionId: 'ver-1111' }
+    const versionKey = spaceApi.deriveVersionKey(spaceKey, versionHeader.versionId)
+    const aad = spaceApi.buildVersionAad(versionHeader)
+    const plain = new TextEncoder().encode('{"parent_ids":["ver-0000"]}')
+
+    const blob = await aesGcm(versionKey, aad, plain)
+    expect(new TextDecoder().decode(await aesGcmOpen(versionKey, aad, blob))).toBe(
+      '{"parent_ids":["ver-0000"]}'
+    )
+
+    // The row key of the contact this version belongs to must not open it.
+    const rowKey = spaceApi.deriveRowKey(spaceKey, header.itemId)
+    await expect(aesGcmOpen(rowKey, aad, blob)).rejects.toThrow()
+
+    // The row AAD is a different domain even for identical header fields.
+    await expect(aesGcmOpen(versionKey, spaceApi.buildRowAad(versionHeader), blob)).rejects.toThrow()
+
+    // Moving the blob to another version of the same contact fails.
+    const otherAad = spaceApi.buildVersionAad({ ...versionHeader, versionId: 'ver-2222' })
+    await expect(aesGcmOpen(versionKey, otherAad, blob)).rejects.toThrow()
+  })
+
+  test('version keys are distinct per version and per epoch key', () => {
+    const keyA = spaceApi.mintSpaceKey()
+    const keyB = spaceApi.mintSpaceKey()
+    const a1 = spaceApi.deriveVersionKey(keyA, 'ver-1')
+    const a2 = spaceApi.deriveVersionKey(keyA, 'ver-2')
+    const b1 = spaceApi.deriveVersionKey(keyB, 'ver-1')
+    expect(a1).not.toEqual(a2)
+    expect(a1).not.toEqual(b1)
+  })
+
   test('row keys are distinct per item and per epoch key', () => {
     const keyA = spaceApi.mintSpaceKey()
     const keyB = spaceApi.mintSpaceKey()
