@@ -23,11 +23,12 @@
 			window.__writableLabels = writableLabels;
 			window.__createSpaceKeys = createSpaceKeys;
 		</script>
-		<!-- E2EE contacts store (IndexedDB + codec + query + sync). Built from
-		     packages/sdk/src/vault by `bun run build:vault`; it exposes
-		     window.__createContactsVault. The store lives here so embedding apps
-		     can never touch the decrypted rows. -->
-		<script type="module" src="/auth/static/contacts-vault.js"></script>
+		<!-- E2EE collection stores — contacts, calendar, memories (IndexedDB +
+		     codecs + query + sync). Built from packages/sdk/src/vault by
+		     `bun run build:vault`; it exposes window.__createVaultStore. The
+		     stores live here so embedding apps can never touch the decrypted
+		     rows. -->
+		<script type="module" src="/auth/static/collections-vault.js"></script>
 	</head>
 	<body>
 		<div id="card" class="card">
@@ -899,12 +900,12 @@
 					}
 				}
 
-				// ── Contacts store (lives in this origin, never in the app) ─────────
-				// The decrypted rows, their IndexedDB partition and the query engine
+				// ── Collection stores (live in this origin, never in the app) ───────
+				// The decrypted rows, their IndexedDB partitions and the query engine
 				// belong to the vault. Apps only send scope-checked ops; even the sync
 				// fetches to the API happen here, so ciphertext and plaintext alike
 				// stay out of the embedding page.
-				let contactsVault = null;
+				let collectionStore = null;
 				const tokenWaiters = new Map();
 				let nextTokenRequestId = 1;
 
@@ -927,9 +928,9 @@
 					});
 				}
 
-				// In-process crypto for the store: the same space operations the app
+				// In-process crypto for the stores: the same space operations the app
 				// reaches over postMessage, called directly with resident keys.
-				function contactsCrypto() {
+				function collectionCrypto() {
 					return {
 						spaceKeyCreate: (collection, spaceId, userId) =>
 							spaceKeyCreate({ collection, spaceId, userId }),
@@ -951,29 +952,32 @@
 					};
 				}
 
-				function contactsStore() {
-					// The store binds the token holder's id (envelope authorship); without
+				function collectionStores() {
+					// The stores bind the token holder's id (envelope authorship); without
 					// a verified subject there is nobody to write as.
 					if (!ownUserId) throw new Error('no verified user for this token');
-					if (!contactsVault) {
-						contactsVault = window.__createContactsVault({
+					if (!collectionStore) {
+						collectionStore = window.__createVaultStore({
 							apiUrl: API_URL,
 							ownUserId: ownUserId,
-							crypto: contactsCrypto(),
+							crypto: collectionCrypto(),
 							getToken: () => accessToken,
 							refreshToken: requestFreshToken,
-							emit: (event, detail) => post(parentOrigin, { type: 'contacts-event', event, detail })
+							emit: (collection, event, detail) =>
+								post(parentOrigin, { type: 'collection-event', collection, event, detail })
 						});
 					}
-					return contactsVault;
+					return collectionStore;
 				}
 
-				// Capability gate for a contacts op: reads need a read-implying grant
-				// for the collection label, writes a write-implying one.
-				function contactsOpAllowed(type) {
-					if (!allowedLabels.has('contacts')) return false;
-					if (!window.__contactsOpNeedsWrite(type)) return true;
-					return allowedWriteLabels.has('contacts');
+				// Capability gate for a collection op: reads need a read-implying grant
+				// for the collection's label, writes a write-implying one. The label IS
+				// the collection name, so an ungranted collection is unreachable rather
+				// than merely filtered.
+				function collectionOpAllowed(op) {
+					if (!allowedLabels.has(op.collection)) return false;
+					if (!window.__opNeedsWrite(op.verb)) return true;
+					return allowedWriteLabels.has(op.collection);
 				}
 
 				// ── Message bridge ──────────────────────────────────────────────────
@@ -989,8 +993,8 @@
 						email = msg.email || null;
 						accessToken = msg.token || null;
 						// A fresh init may carry a different subject or scope set; drop the
-						// store so it rebinds instead of writing as the previous holder.
-						contactsVault = null;
+						// stores so they rebind instead of writing as the previous holder.
+						collectionStore = null;
 						// Bind this session's decryption capability to the embedding
 						// client's granted OAuth scopes (from its access token). Done
 						// before unlock so publishScopeKeys covers the granted labels.
@@ -1164,19 +1168,20 @@
 						return;
 					}
 
-					if (msg.type && window.__isContactsOp(msg.type)) {
+					const collectionOp = msg.type ? window.__parseOp(msg.type) : null;
+					if (collectionOp && window.__collectionNames().includes(collectionOp.collection)) {
 						// Space keys must be resident: the store decrypts on every read
 						// path, so a locked vault can answer nothing.
 						if (!spaceSignKp) {
 							e.source.postMessage({ type: 'result', id: msg.id, ok: false, error: 'locked' }, e.origin);
 							return;
 						}
-						if (!contactsOpAllowed(msg.type)) {
+						if (!collectionOpAllowed(collectionOp)) {
 							e.source.postMessage({ type: 'result', id: msg.id, ok: false, error: 'scope_not_granted' }, e.origin);
 							return;
 						}
 						try {
-							const result = await contactsStore().handle(msg);
+							const result = await collectionStores().handle(msg);
 							e.source.postMessage({ type: 'result', id: msg.id, ok: true, ...result }, e.origin);
 						} catch (err) {
 							e.source.postMessage(
