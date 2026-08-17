@@ -52,6 +52,7 @@ var scopeCatalog = map[string]scopeView{
 	// touch your machine and are far more sensitive than plain chat/complete.
 	"ai:chat":     {Name: "Chat with AI", Description: "Send messages to the local or cloud AI"},
 	"ai:complete": {Name: "AI text completion", Description: "Autocomplete text and code"},
+	"ai:embed":    {Name: "Embed your text on-device", Description: "Turn your notes into search vectors locally, so recall never leaves your machine"},
 	"ai:fsread":   {Name: "Let AI read app files", Description: "Read files within the app's data directory"},
 	"ai:fswrite":  {Name: "Let AI write app files", Description: "Write files in the app's data directory (asks each time)"},
 	"ai:webfetch": {Name: "Let AI fetch web pages", Description: "Fetch content from URLs on your behalf"},

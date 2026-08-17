@@ -952,6 +952,36 @@
 					};
 				}
 
+				// Brokered embedding for the collection stores. Returns null (rather than
+				// throwing) whenever the scope is missing or the daemon is unreachable,
+				// so a store that cannot embed degrades to lexical search instead of
+				// failing the write that triggered it.
+				async function embedText(input) {
+					const res = await fetch(DAEMON_URL + '/v1/embed', {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+							Authorization: 'Bearer ' + (accessToken || '')
+						},
+						body: JSON.stringify({ input })
+					});
+					if (!res.ok) throw new Error('daemon_status_' + res.status);
+					return res.json();
+				}
+
+				async function embedOne(text) {
+					if (!grantedScopes.includes('ai:embed')) return null;
+					if (!text) return null;
+					try {
+						const result = await embedText([text]);
+						const vector = result.vectors && result.vectors[0];
+						if (!vector) return null;
+						return { model: result.model, dim: result.dim, vector: vector };
+					} catch (_) {
+						return null;
+					}
+				}
+
 				function collectionStores() {
 					// The stores bind the token holder's id (envelope authorship); without
 					// a verified subject there is nobody to write as.
@@ -963,6 +993,7 @@
 							crypto: collectionCrypto(),
 							getToken: () => accessToken,
 							refreshToken: requestFreshToken,
+							embed: embedOne,
 							emit: (collection, event, detail) =>
 								post(parentOrigin, { type: 'collection-event', collection, event, detail })
 						});
@@ -1051,6 +1082,26 @@
 							} else {
 								throw new Error('unknown chat op');
 							}
+							e.source.postMessage({ type: 'result', id: msg.id, ok: true, ...result }, e.origin);
+						} catch (err) {
+							e.source.postMessage(
+								{ type: 'result', id: msg.id, ok: false, error: String(err && err.message) },
+								e.origin
+							);
+						}
+						return;
+					}
+
+					if (msg.type === 'ai-embed') {
+						// Embedding is not a stream and never leaves the machine: the
+						// daemon runs the model locally so encrypted content can be ranked
+						// on device. Gated on the exact scope, like the other ai-* ops.
+						if (!grantedScopes.includes('ai:embed')) {
+							e.source.postMessage({ type: 'result', id: msg.id, ok: false, error: 'scope_not_granted' }, e.origin);
+							return;
+						}
+						try {
+							const result = await embedText(msg.input || []);
 							e.source.postMessage({ type: 'result', id: msg.id, ok: true, ...result }, e.origin);
 						} catch (err) {
 							e.source.postMessage(
