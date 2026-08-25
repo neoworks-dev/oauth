@@ -1356,7 +1356,20 @@
 					}
 				});
 
+				// The crypto engines and the collection stores arrive as module
+				// scripts, which are deferred: they run after this classic script but
+				// before DOMContentLoaded. Waiting on sodium.ready alone races them —
+				// libsodium can resolve within a microtask, leaving __createScopeKeys
+				// still undefined.
+				function modulesReady() {
+					if (document.readyState !== 'loading') return Promise.resolve();
+					return new Promise(function (resolve) {
+						document.addEventListener('DOMContentLoaded', resolve, { once: true });
+					});
+				}
+
 				(async function init() {
+					await modulesReady();
 					await sodium.ready;
 					b64 = sodium.base64_variants.ORIGINAL;
 					// Scope-key engine — ready before any unlock derives scopeMaster.
