@@ -22,6 +22,7 @@ import (
 	"github.com/neoworks/oauth/handlers/account"
 	"github.com/neoworks/oauth/handlers/auth"
 	fedcmhandler "github.com/neoworks/oauth/handlers/fedcm"
+	googlehandler "github.com/neoworks/oauth/handlers/google"
 	oauth_handlers "github.com/neoworks/oauth/handlers/oauth"
 	sessionhandler "github.com/neoworks/oauth/handlers/session"
 	staticassets "github.com/neoworks/oauth/handlers/static"
@@ -64,6 +65,17 @@ func main() {
 	)
 	if err != nil {
 		log.Fatalf("surrealdb: %v", err)
+	}
+
+	// Google refresh tokens are the one live third-party credential this server
+	// stores; seal them at rest with the same key the instance-secret store uses.
+	// Unset means stored verbatim, which is acceptable only in development.
+	if key := os.Getenv("INSTANCE_SECRET_KEY"); key != "" {
+		encryptor, err := database.NewEncryptor(key)
+		if err != nil {
+			log.Fatalf("instance secret key: %v", err)
+		}
+		surreal.Google.UseEncryptor(encryptor)
 	}
 
 	// ── Core ──────────────────────────────────────────────────────────────────
@@ -136,6 +148,23 @@ func main() {
 		auth.NewApprovalLoginHandler(redis, surreal, issuer, pushSender).Register(r)
 		handlers.NewConsentHandler(redis, surreal, issuer, loginURL).Register(r)
 		account.NewSecurityHandler(surreal, redis).Register(r)
+	})
+
+	// ── Google account linking ────────────────────────────────────────────────
+	// The consent popup is a top-level navigation and authenticates from the
+	// sso_session cookie; everything the Vault calls is an XHR carrying the
+	// embedding app's bearer token. Each of those handlers also requires
+	// google:link — the middleware proves the token is valid, not that this
+	// capability was granted.
+	googleHandler := googlehandler.NewHandler(
+		surreal, surreal.Google,
+		googlehandler.NewRedisSessions(redis),
+		googlehandler.ConfigFromEnv(),
+	)
+	googleHandler.Register(router)
+	router.Group(func(r chi.Router) {
+		r.Use(clientAuth.JWTMiddleware)
+		googleHandler.RegisterAuthenticated(r)
 	})
 
 	// End-to-end encryption key & device management, reused from apps/api.

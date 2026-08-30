@@ -44,6 +44,9 @@ var scopeCatalog = map[string]scopeView{
 	"ai:fswrite":  {Name: "Let AI write app files", Description: "Write files in the app's data directory (asks each time)"},
 	"ai:webfetch": {Name: "Let AI fetch web pages", Description: "Fetch content from URLs on your behalf"},
 	"ai:bash":     {Name: "Let AI run commands", Description: "Run sandboxed shell commands on your machine (asks each time)"},
+	// Linking a Google account is the one grant that moves data outside NeoWorks'
+	// encryption, so the copy says so rather than describing a capability.
+	"google:link": {Name: "Link your Google account", Description: "Sync calendars with Google — synced events are stored on Google's servers in plain text"},
 }
 
 // actionVerbs maps the action segment of a scope to the verb used in its label.
