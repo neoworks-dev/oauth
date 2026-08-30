@@ -5,16 +5,20 @@ import (
 	"context"
 	_ "embed"
 	"encoding/base64"
+	"encoding/json"
 	"html/template"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/neoworks/auth/config"
 	"github.com/neoworks/auth/handlers/shared"
 	"github.com/neoworks/auth/oauth"
 	"github.com/neoworks/auth/storage/cache"
 	"github.com/neoworks/auth/storage/database"
+	"github.com/neoworks/oauth/handlers/origins"
 	qrcode "github.com/skip2/go-qrcode"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -92,6 +96,8 @@ func (handler *LoginHandler) handleLogin(response http.ResponseWriter, request *
 		return
 	}
 
+	handler.registerVaultDevice(request, user.ID.ID.(string))
+
 	challenge, err := handler.redis.GetLoginChallenge(request.Context(), challengeKey)
 	if err != nil || challenge == nil {
 		shared.RestartLogin(response, request, handler.loginURL)
@@ -99,6 +105,32 @@ func (handler *LoginHandler) handleLogin(response http.ResponseWriter, request *
 	}
 
 	shared.HandleConsentRedirect(handler.redis, handler.store, handler.issuer, user, challenge, response, request)
+}
+
+// registerVaultDevice files the encryption key the login page sealed to the
+// calling app's vault frame, so the frame unlocks itself without asking for the
+// password a second time. `vault_wrapped_amk` is crypto_box_seal'd to
+// `vault_device_key`, which this server cannot open — the same shape it already
+// stores for every registered device.
+//
+// Best-effort on purpose: a failure here costs the user an unlock prompt, and
+// failing the login instead would be a worse trade.
+func (handler *LoginHandler) registerVaultDevice(request *http.Request, userID string) {
+	devicePublicKey := request.FormValue("vault_device_key")
+	wrappedAMK := request.FormValue("vault_wrapped_amk")
+	if devicePublicKey == "" || wrappedAMK == "" {
+		return
+	}
+
+	name := "Vault"
+	if _, err := handler.store.RegisterDevice(request.Context(), &database.RegisterDeviceParams{
+		UserID:     userID,
+		PublicKey:  devicePublicKey,
+		WrappedAMK: wrappedAMK,
+		Name:       &name,
+	}); err != nil {
+		slog.Warn("vault device registration failed", "err", err)
+	}
 }
 
 // redirectToSelectAccount sends the user to the account picker, preserving the
@@ -200,18 +232,30 @@ func (handler *LoginHandler) serveLogin(response http.ResponseWriter, request *h
 		notice = "Password reset. Please sign in with your new password."
 	}
 
+	// Origins the page will accept a vault device key from. The client's own
+	// registered redirect URIs are the right source: an app may hand this page a
+	// key from exactly the origins it already registered to receive sign-ins, so
+	// a hostile page cannot open the login window and have the account key sealed
+	// to a key it controls.
+	originsJSON, _ := json.Marshal(origins.FromRedirectURIs(client.RedirectURIs))
+	apiURLJSON, _ := json.Marshal(config.ServiceURL("api"))
+
 	data := struct {
-		LoginChallenge string
-		AppName        string
-		Error          string
-		Notice         string
-		SigninQR       template.URL
+		LoginChallenge     string
+		AppName            string
+		Error              string
+		Notice             string
+		SigninQR           template.URL
+		AllowedOriginsJSON template.JS
+		APIURLJSON         template.JS
 	}{
-		LoginChallenge: challengeKey,
-		AppName:        client.ID.ID.(string),
-		Error:          loginErrorMessage(request.URL.Query().Get("error")),
-		Notice:         notice,
-		SigninQR:       signinQRDataURI(challengeKey),
+		LoginChallenge:     challengeKey,
+		AppName:            client.ID.ID.(string),
+		Error:              loginErrorMessage(request.URL.Query().Get("error")),
+		Notice:             notice,
+		SigninQR:           signinQRDataURI(challengeKey),
+		AllowedOriginsJSON: template.JS(originsJSON),
+		APIURLJSON:         template.JS(apiURLJSON),
 	}
 
 	if err := loginTmpl.Execute(&buf, data); err != nil {

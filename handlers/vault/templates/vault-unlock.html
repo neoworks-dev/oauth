@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Unlock encryption · NeoWorks</title>
+		<link rel="stylesheet" href="/auth/static/neoworks.css" />
+		<script src="/auth/static/libsodium.js"></script>
+		<script src="/auth/static/libsodium-wrappers.js"></script>
+	</head>
+	<body>
+		<div class="card">
+			<div class="logo">
+				<svg width="20" height="20" viewBox="0 0 100 100" fill="none" aria-hidden="true">
+					<circle cx="50" cy="50" r="40" stroke="currentColor" stroke-width="7" />
+					<path d="M 81 27 C 73 51, 55 69, 26 74" stroke="currentColor" stroke-width="7" stroke-linecap="round" />
+				</svg>
+				<span>NeoWorks</span>
+			</div>
+			<h1>Unlock encryption</h1>
+			<p class="subtitle">
+				<strong>{{.AppName}}</strong> stores your data <strong>end-to-end encrypted</strong>.
+				Enter your NeoWorks password to unlock your key. Your password is read only by
+				this window — check the address bar, it must say
+				<strong>{{.OAuthHost}}</strong>. {{.AppName}} never sees your password or
+				your key.
+			</p>
+			<form id="form">
+				<label for="password">NeoWorks password</label>
+				<input id="password" type="password" placeholder="••••••••" autocomplete="current-password" required />
+				<button id="submit" type="submit">Unlock encryption</button>
+			</form>
+			<div class="err" id="error"></div>
+			<div class="footnote">Secured by NeoWorks · your key never leaves this window</div>
+		</div>
+
+		<script>
+			(function () {
+				// Origins of this client's registered redirect URIs. The init message
+				// names the public key the account key gets sealed to, so whoever may
+				// send it chooses that keypair — the gate stays, unlike in the vault
+				// frame, and uses the same trust source as the sign-in prompt.
+				const ALLOWED_ORIGINS = {{.AllowedOriginsJSON}};
+				const API_URL = {{.APIURLJSON}};
+				const APP_NAME = {{.AppNameJSON}};
+
+				const form = document.getElementById('form');
+				const passwordInput = document.getElementById('password');
+				const submitBtn = document.getElementById('submit');
+				const errorEl = document.getElementById('error');
+
+				let b64;
+				// Filled by the opener's vault-unlock-init. None of it is secret to the
+				// app — it is the app's own token, the account email, and the public key
+				// of the vault frame that will receive the unlocked key.
+				let openerOrigin = null;
+				let accessToken = null;
+				let email = null;
+				let devicePublicKey = null;
+
+				function setError(message) {
+					errorEl.textContent = message || '';
+				}
+
+				window.addEventListener('message', (e) => {
+					if (!ALLOWED_ORIGINS.includes(e.origin)) return;
+					const msg = e.data || {};
+					if (msg.type !== 'vault-unlock-init') return;
+					openerOrigin = e.origin;
+					accessToken = msg.token || null;
+					email = msg.email || null;
+					devicePublicKey = msg.devicePublicKey || null;
+				});
+
+				// Announce readiness so the opener sends the init above. targetOrigin '*'
+				// is safe: the message carries nothing the opener does not already know.
+				if (window.opener) {
+					window.opener.postMessage({ type: 'vault-unlock-ready' }, '*');
+				} else {
+					setError('Open this window from the app you are unlocking.');
+					submitBtn.disabled = true;
+				}
+
+				async function deriveAccountKey(password) {
+					const res = await fetch(
+						API_URL + '/api/v1/auth/key-challenge?email=' + encodeURIComponent(email)
+					);
+					if (!res.ok) throw new Error('This account has no encryption key set up.');
+					const challenge = await res.json();
+					const passwordKey = sodium.crypto_pwhash(
+						challenge.argon2_keylen,
+						password,
+						sodium.from_base64(challenge.argon2_salt, b64),
+						challenge.argon2_time,
+						challenge.argon2_memory,
+						sodium.crypto_pwhash_ALG_ARGON2ID13
+					);
+					const wrapped = sodium.from_base64(challenge.password_wrapped_amk, b64);
+					const nonce = wrapped.slice(0, sodium.crypto_secretbox_NONCEBYTES);
+					const ciphertext = wrapped.slice(sodium.crypto_secretbox_NONCEBYTES);
+					const amk = sodium.crypto_secretbox_open_easy(ciphertext, nonce, passwordKey);
+					if (!amk) throw new Error('Wrong password.');
+					return amk;
+				}
+
+				// The key leaves this window only sealed to the vault frame's public key,
+				// over the same device registration a second device uses. The server
+				// stores that sealed copy and cannot open it; the app never holds it at
+				// all, which is why this works without any shared browser storage.
+				async function handOffToVault(amk) {
+					const sealed = sodium.crypto_box_seal(amk, sodium.from_base64(devicePublicKey, b64));
+					const res = await fetch(API_URL + '/api/v1/keys/devices', {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+							Authorization: 'Bearer ' + accessToken
+						},
+						body: JSON.stringify({
+							public_key: devicePublicKey,
+							wrapped_amk: sodium.to_base64(sealed, b64),
+							name: APP_NAME + ' Vault'
+						})
+					});
+					if (!res.ok) throw new Error('Could not hand the key to the vault.');
+				}
+
+				form.addEventListener('submit', async (submitted) => {
+					submitted.preventDefault();
+					setError('');
+					if (!openerOrigin || !devicePublicKey) {
+						setError('Nothing to unlock — reopen this window from the app.');
+						return;
+					}
+					submitBtn.disabled = true;
+					try {
+						await sodium.ready;
+						b64 = sodium.base64_variants.ORIGINAL;
+						const amk = await deriveAccountKey(passwordInput.value);
+						await handOffToVault(amk);
+						sodium.memzero(amk);
+						passwordInput.value = '';
+						window.opener.postMessage({ type: 'vault-unlocked' }, openerOrigin);
+						window.close();
+					} catch (err) {
+						setError(err && err.message ? err.message : 'Unlock failed.');
+					} finally {
+						submitBtn.disabled = false;
+					}
+				});
+			})();
+		</script>
+	</body>
+</html>

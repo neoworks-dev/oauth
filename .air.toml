@@ -5,7 +5,8 @@ tmp_dir = "tmp"
 [build]
   cmd = "go build -buildvcs=false -o ./tmp/oauth ./cmd/oauth"
   bin = "./tmp/oauth"
-  include_ext = ["go"]
+  # Templates and static JS are go:embed-ed — only a rebuild ships them.
+  include_ext = ["go", "html", "js"]
   exclude_dir = ["tmp", "keys", "sql"]
   delay = 500
   stop_on_error = true

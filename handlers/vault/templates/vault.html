@@ -5,11 +5,6 @@
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 		<title>Neoworks Vault</title>
 		<link rel="stylesheet" href="/auth/static/neoworks.css" />
-		<style>
-			/* Sandbox stays hidden until the crypto bridge is ready; JS toggles .show. */
-			#card { display: none; }
-			#card.show { display: block; }
-		</style>
 		<script src="/auth/static/libsodium.js"></script>
 		<script src="/auth/static/libsodium-wrappers.js"></script>
 		<!-- Double Ratchet engine, shared verbatim with the test suite. -->
@@ -31,48 +26,21 @@
 		<script type="module" src="/auth/static/collections-vault.js"></script>
 	</head>
 	<body>
-		<div id="card" class="card">
-			<div class="logo">
-				<svg width="20" height="20" viewBox="0 0 100 100" fill="none" aria-hidden="true">
-					<circle cx="50" cy="50" r="40" stroke="currentColor" stroke-width="7" />
-					<path d="M 81 27 C 73 51, 55 69, 26 74" stroke="currentColor" stroke-width="7" stroke-linecap="round" />
-				</svg>
-				<span>NeoWorks</span>
-			</div>
-			<h1>Unlock encryption</h1>
-			<p class="subtitle">
-				<strong>{{.AppName}}</strong> stores your data <strong>end-to-end encrypted</strong>.
-				Unlock your NeoWorks encryption key so {{.AppName}} can encrypt and read it. This window
-				is served by NeoWorks — your key is used here and is
-				<strong>never shared with {{.AppName}}</strong>.
-			</p>
-			<div id="password-row" class="hidden">
-				<label for="password">NeoWorks password</label>
-				<input id="password" type="password" placeholder="••••••••" autocomplete="current-password" />
-			</div>
-			<button id="action-btn">Unlock encryption</button>
-			<div class="err" id="error"></div>
-			<div class="footnote">Secured by NeoWorks · your key never leaves this window</div>
-		</div>
+		<!-- Deliberately blank. This frame holds keys and stores and renders
+		     nothing: a frame has no address bar, so anything it asked the user to
+		     type could be impersonated by the embedding page. The password is
+		     collected by /vault/unlock, which is a top-level window. -->
 
 		<script>
 			(function () {
-				const ALLOWED_ORIGINS = {{.AllowedOriginsJSON}};
 				// Local AI runtime daemon origin the vault brokers ai-* ops to.
 				const DAEMON_URL = {{.DaemonURLJSON}};
 				// API origin the vault fetches directly for E2EE collection sync.
 				const API_URL = {{.APIURLJSON}};
 
-				const card = document.getElementById('card');
-				const passwordRow = document.getElementById('password-row');
-				const passwordInput = document.getElementById('password');
-				const actionBtn = document.getElementById('action-btn');
-				const errorEl = document.getElementById('error');
-
 				let b64;
 				let parentOrigin = null;
 				let email = null;
-				let needPassword = false;
 				// The embedding client's access token, captured at vault-init. Used to
 				// authenticate the vault's brokered fetch to the AI daemon. Never posted
 				// back to the app.
@@ -129,18 +97,6 @@
 				function post(target, msg, transfer) {
 					if (!target) return;
 					window.parent.postMessage(msg, target, transfer || []);
-				}
-				function setError(m) {
-					errorEl.textContent = m || '';
-				}
-				function showCard(withPassword) {
-					needPassword = !!withPassword;
-					passwordRow.classList.toggle('hidden', !withPassword);
-					actionBtn.textContent = withPassword ? 'Unlock' : 'Enable encryption';
-					card.classList.add('show');
-				}
-				function hideCard() {
-					card.classList.remove('show');
 				}
 
 				// ── IndexedDB: vault's own device keypair (per-partition) ──────────
@@ -459,33 +415,98 @@
 					}
 				}
 
-				// Resolve the embedding client's granted scopes by introspecting its
-				// access token (same-origin, first-party). The resulting allowedLabels
-				// is the ONLY thing that lets a caller decrypt a scope — an unknown or
-				// inactive token leaves it empty, so the Vault decrypts nothing.
-				async function introspectScopes(token) {
+				// How often the granted scopes are re-checked against the server. The
+				// capability this frame holds outlives no grant: a revoked or narrowed
+				// token stops decrypting within one interval rather than at reload.
+				const REVALIDATE_INTERVAL_MS = 120000;
+				let revalidateTimer = null;
+
+				// Ask the server what a token currently carries. Returns the parsed
+				// introspection body, or null when the answer could not be obtained —
+				// which callers must distinguish from an answer of "inactive".
+				async function fetchIntrospection(token) {
+					if (!token) return null;
+					try {
+						// The endpoint is client-authenticated: self-introspection, so the
+						// same token both authenticates the call and is its subject.
+						const res = await fetch('/oauth/introspect', {
+							method: 'POST',
+							credentials: 'include',
+							headers: {
+								'Content-Type': 'application/x-www-form-urlencoded',
+								Authorization: 'Bearer ' + token
+							},
+							body: 'token=' + encodeURIComponent(token)
+						});
+						if (!res.ok) return null;
+						return await res.json();
+					} catch (_) {
+						return null;
+					}
+				}
+
+				// Drop every capability. Cached scope keypairs go too: they are derived
+				// material for scopes this caller no longer holds.
+				function clearCapability() {
 					grantedScopes = [];
 					allowedLabels = new Set();
 					allowedWriteLabels = new Set();
 					ownUserId = null;
-					if (!token) return;
-					try {
-						const res = await fetch('/oauth/introspect', {
-							method: 'POST',
-							credentials: 'include',
-							headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-							body: 'token=' + encodeURIComponent(token)
-						});
-						if (!res.ok) return;
-						const body = await res.json();
-						if (!body.active) return;
-						grantedScopes = String(body.scope || '').split(' ').filter(Boolean);
-						allowedLabels = window.__decryptableLabels(grantedScopes);
-						allowedWriteLabels = window.__writableLabels(grantedScopes);
-						ownUserId = body.sub ? String(body.sub) : null;
-					} catch (_) {
-						// ignore — caller is left with no decryption capability
+					scopeKeyCache.clear();
+				}
+
+				function applyCapability(body) {
+					grantedScopes = String(body.scope || '').split(' ').filter(Boolean);
+					allowedLabels = window.__decryptableLabels(grantedScopes);
+					allowedWriteLabels = window.__writableLabels(grantedScopes);
+					ownUserId = body.sub ? String(body.sub) : null;
+					pruneScopeKeyCache();
+				}
+
+				// Hygiene, not a gate: scopeMaster can re-derive any of these on demand,
+				// so this only keeps keypairs for revoked labels from sitting resident.
+				// Decryption is refused by allowedLabels, not by a cache miss.
+				function pruneScopeKeyCache() {
+					for (const label of scopeKeyCache.keys()) {
+						if (allowedLabels.has(label)) continue;
+						scopeKeyCache.delete(label);
 					}
+				}
+
+				// Resolve the embedding client's granted scopes by introspecting its
+				// access token (same-origin, first-party). The resulting allowedLabels
+				// is the ONLY thing that lets a caller decrypt a scope — an unknown or
+				// inactive token leaves it empty, so the Vault decrypts nothing.
+				//
+				// Fail-closed: used when adopting a token, where no answer means no
+				// capability.
+				async function introspectScopes(token) {
+					clearCapability();
+					const body = await fetchIntrospection(token);
+					if (!body) return;
+					if (!body.active) return;
+					applyCapability(body);
+				}
+
+				// The periodic re-check. Unlike adopting a token, an unreachable server
+				// leaves the current capability standing until the next tick — the token
+				// still carries its own expiry, and dropping a working session on a
+				// network blip trades a real failure for a hypothetical one. A definite
+				// "inactive" revokes immediately.
+				async function revalidateCapability() {
+					if (!accessToken) return;
+					const body = await fetchIntrospection(accessToken);
+					if (!body) return;
+					if (!body.active) {
+						clearCapability();
+						return;
+					}
+					applyCapability(body);
+				}
+
+				function startRevalidating() {
+					if (revalidateTimer) return;
+					revalidateTimer = setInterval(revalidateCapability, REVALIDATE_INTERVAL_MS);
 				}
 
 				function sealDek(dekBytes, pubKeyBytes) {
@@ -815,85 +836,35 @@
 					return true;
 				}
 
-				async function unlockWithPassword(password) {
-					if (!email) throw new Error('missing email');
-					const cres = await apiFetch(
-						'/api/v1/auth/key-challenge?email=' + encodeURIComponent(email)
-					);
-					if (!cres.ok) throw new Error('account has no encryption key set up');
-					const ch = await cres.json();
-					const passwordKey = sodium.crypto_pwhash(
-						ch.argon2_keylen,
-						password,
-						sodium.from_base64(ch.argon2_salt, b64),
-						ch.argon2_time,
-						ch.argon2_memory,
-						sodium.crypto_pwhash_ALG_ARGON2ID13
-					);
-					const wrapped = sodium.from_base64(ch.password_wrapped_amk, b64);
-					const nonce = wrapped.slice(0, sodium.crypto_secretbox_NONCEBYTES);
-					const ciphertext = wrapped.slice(sodium.crypto_secretbox_NONCEBYTES);
-					const amk = sodium.crypto_secretbox_open_easy(ciphertext, nonce, passwordKey);
-					if (!amk) throw new Error('wrong password');
-
-					// Register this vault as a device so future loads unlock silently.
+				// This frame's own keypair, kept in its own (partitioned) IndexedDB.
+				// The unlock window seals the account key to the public half, so the
+				// key reaches this origin without the embedding app ever holding it and
+				// without the two windows needing to share a storage partition.
+				async function ensureDeviceKey() {
+					const existing = await idbGet('devkey');
+					if (existing) return existing;
 					const keypair = sodium.crypto_box_keypair();
-					const pub = sodium.to_base64(keypair.publicKey, b64);
-					const priv = sodium.to_base64(keypair.privateKey, b64);
-					const wrappedForDevice = sodium.crypto_box_seal(amk, keypair.publicKey);
-					const reg = await apiFetch('/api/v1/keys/devices', {
-						method: 'POST',
-						headers: { 'Content-Type': 'application/json' },
-						body: JSON.stringify({
-							public_key: pub,
-							wrapped_amk: sodium.to_base64(wrappedForDevice, b64),
-							name: '{{.AppName}} Vault'
-						})
-					});
-					if (!reg.ok) throw new Error('could not register device');
-					await idbSet('devkey', { pub, priv });
-					await importAmk(amk);
+					const created = {
+						pub: sodium.to_base64(keypair.publicKey, b64),
+						priv: sodium.to_base64(keypair.privateKey, b64)
+					};
+					await idbSet('devkey', created);
+					return created;
 				}
 
 				function ready() {
-					hideCard();
 					post(parentOrigin, { type: 'ready' });
 				}
 
-				// ── Action button: gesture-driven storage access + unlock ───────────
-				actionBtn.addEventListener('click', async () => {
-					setError('');
-					actionBtn.disabled = true;
-					try {
-						if (document.requestStorageAccess && !(await safeHasAccess())) {
-							await document.requestStorageAccess();
-						}
-						if (needPassword) {
-							await unlockWithPassword(passwordInput.value);
-							ready();
-						} else if (await unlockWithStoredKeypair()) {
-							ready();
-						} else {
-							showCard(true); // fall back to password
-						}
-					} catch (e) {
-						setError(e && e.message ? e.message : 'failed');
-					} finally {
-						actionBtn.disabled = false;
-					}
-				});
-
-				async function safeHasAccess() {
-					try {
-						return await document.hasStorageAccess();
-					} catch {
-						return false;
-					}
+				// Locked: hand the app this frame's PUBLIC key so the unlock window can
+				// seal the account key to it. The app can do nothing else with it.
+				async function postLocked() {
+					const devkey = await ensureDeviceKey();
+					post(parentOrigin, { type: 'locked', devicePublicKey: devkey.pub });
 				}
 
 				async function trySilentUnlock() {
 					try {
-						if (!(await safeHasAccess())) return false;
 						return await unlockWithStoredKeypair();
 					} catch {
 						return false;
@@ -911,6 +882,11 @@
 
 				// The vault holds the app's access token but not its refresh token, so
 				// a 401 on the sync path is answered by asking the embedder to refresh.
+				//
+				// The replacement is re-introspected before it is used: a refresh may
+				// come back with fewer scopes, or for a different subject, and adopting
+				// it without re-resolving would leave this frame decrypting under the
+				// capability the previous token granted.
 				function requestFreshToken() {
 					if (!parentOrigin) return Promise.resolve(null);
 					const id = nextTokenRequestId++;
@@ -919,9 +895,14 @@
 							tokenWaiters.delete(id);
 							resolve(null);
 						}, 15000);
-						tokenWaiters.set(id, (token) => {
+						tokenWaiters.set(id, async (token) => {
 							clearTimeout(timer);
 							accessToken = token;
+							const previousUserId = ownUserId;
+							await introspectScopes(token);
+							// A different subject must not keep writing through a store
+							// bound to the previous holder's id.
+							if (ownUserId !== previousUserId) collectionStore = null;
 							resolve(token);
 						});
 						post(parentOrigin, { type: 'vault-token-request', id });
@@ -1012,12 +993,27 @@
 				}
 
 				// ── Message bridge ──────────────────────────────────────────────────
+				// Open to any origin. What a caller may decrypt is decided by the
+				// access token it inits with — introspected against this server, and
+				// binding to keypairs derived per granted scope — so an origin filter
+				// would grant nothing extra and only duplicate that gate. Storage is
+				// partitioned per embedder, so a page that frames this one reaches its
+				// own empty partition, not another app's keys.
 				window.addEventListener('message', async (e) => {
-					if (!ALLOWED_ORIGINS.includes(e.origin)) return;
 					const msg = e.data || {};
 
 					await sodium.ready;
 					if (!b64) b64 = sodium.base64_variants.ORIGINAL;
+
+					// Asked before sign-in, while there is no token to init with: the
+					// app needs this frame's public key so the login window can seal
+					// the account key to it.
+					if (msg.type === 'vault-device-key-request') {
+						parentOrigin = e.origin;
+						const devkey = await ensureDeviceKey();
+						post(parentOrigin, { type: 'vault-device-key', devicePublicKey: devkey.pub });
+						return;
+					}
 
 					if (msg.type === 'vault-init') {
 						parentOrigin = e.origin;
@@ -1030,11 +1026,22 @@
 						// client's granted OAuth scopes (from its access token). Done
 						// before unlock so publishScopeKeys covers the granted labels.
 						await introspectScopes(msg.token);
+						startRevalidating();
 						if (await trySilentUnlock()) {
 							ready();
 						} else {
-							showCard(false);
-							post(parentOrigin, { type: 'locked' });
+							await postLocked();
+						}
+						return;
+					}
+
+					// The unlock window finished; the account key is now waiting on the
+					// server, sealed to this frame's device key.
+					if (msg.type === 'vault-retry-unlock') {
+						if (await trySilentUnlock()) {
+							ready();
+						} else {
+							await postLocked();
 						}
 						return;
 					}
