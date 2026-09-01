@@ -217,7 +217,7 @@ var DURATION_UNIT_MS = {
 	m: 6e4,
 	s: 1e3
 };
-function durationToMs(spec) {
+function durationToMs$1(spec) {
 	let total = 0;
 	let matched = false;
 	for (const part of spec.matchAll(/(\d+)([wdhms])/g)) {
@@ -233,7 +233,7 @@ function matchDate(value, filter) {
 	if (filter.before && !(time < new Date(filter.before).getTime())) return false;
 	if (filter.after && !(time > new Date(filter.after).getTime())) return false;
 	if (!filter.withinLast) return true;
-	const window = durationToMs(filter.withinLast);
+	const window = durationToMs$1(filter.withinLast);
 	if (window === null) return false;
 	return time >= Date.now() - window;
 }
@@ -4688,7 +4688,7 @@ function formatIsoUtcTimestamp$1(ms) {
 	const seconds = secondOfDay % 60;
 	return formatDateFromDays$1(days) + "T" + TWO_DIGIT_STRINGS$1[hours] + ":" + TWO_DIGIT_STRINGS$1[minutes] + ":" + TWO_DIGIT_STRINGS$1[seconds] + "." + TWO_DIGIT_STRINGS$1[Math.floor(millis / 10)] + String(millis % 10) + "Z";
 }
-function canonicalJson(value) {
+function canonicalJson$1(value) {
 	return JSON.stringify(sortJsonKeys(value));
 }
 function sortJsonKeys(value) {
@@ -5155,49 +5155,49 @@ function writeEvent(w, value, path) {
 	if (value.participants !== null && value.participants !== void 0) {
 		const present = value.participants;
 		w.key(16, 2);
-		w.string(canonicalJson(present));
+		w.string(canonicalJson$1(present));
 	}
 	pending = flushUnknownBefore$1(w, unknown, pending, 17);
 	if (value.locations !== null && value.locations !== void 0) {
 		const present = value.locations;
 		w.key(17, 2);
-		w.string(canonicalJson(present));
+		w.string(canonicalJson$1(present));
 	}
 	pending = flushUnknownBefore$1(w, unknown, pending, 18);
 	if (value.virtual_locations !== null && value.virtual_locations !== void 0) {
 		const present = value.virtual_locations;
 		w.key(18, 2);
-		w.string(canonicalJson(present));
+		w.string(canonicalJson$1(present));
 	}
 	pending = flushUnknownBefore$1(w, unknown, pending, 19);
 	if (value.alerts !== null && value.alerts !== void 0) {
 		const present = value.alerts;
 		w.key(19, 2);
-		w.string(canonicalJson(present));
+		w.string(canonicalJson$1(present));
 	}
 	pending = flushUnknownBefore$1(w, unknown, pending, 20);
 	if (value.links !== null && value.links !== void 0) {
 		const present = value.links;
 		w.key(20, 2);
-		w.string(canonicalJson(present));
+		w.string(canonicalJson$1(present));
 	}
 	pending = flushUnknownBefore$1(w, unknown, pending, 21);
 	if (value.related_to !== null && value.related_to !== void 0) {
 		const present = value.related_to;
 		w.key(21, 2);
-		w.string(canonicalJson(present));
+		w.string(canonicalJson$1(present));
 	}
 	pending = flushUnknownBefore$1(w, unknown, pending, 22);
 	if (value.localizations !== null && value.localizations !== void 0) {
 		const present = value.localizations;
 		w.key(22, 2);
-		w.string(canonicalJson(present));
+		w.string(canonicalJson$1(present));
 	}
 	pending = flushUnknownBefore$1(w, unknown, pending, 23);
 	if (value.recurrence_overrides !== null && value.recurrence_overrides !== void 0) {
 		const present = value.recurrence_overrides;
 		w.key(23, 2);
-		w.string(canonicalJson(present));
+		w.string(canonicalJson$1(present));
 	}
 	pending = flushUnknownBefore$1(w, unknown, pending, 24);
 	if (value.recurrence_rules !== null && value.recurrence_rules !== void 0) {
@@ -5572,49 +5572,49 @@ function writeEventVersion(w, value, path) {
 	if (value.participants !== null && value.participants !== void 0) {
 		const present = value.participants;
 		w.key(17, 2);
-		w.string(canonicalJson(present));
+		w.string(canonicalJson$1(present));
 	}
 	pending = flushUnknownBefore$1(w, unknown, pending, 18);
 	if (value.locations !== null && value.locations !== void 0) {
 		const present = value.locations;
 		w.key(18, 2);
-		w.string(canonicalJson(present));
+		w.string(canonicalJson$1(present));
 	}
 	pending = flushUnknownBefore$1(w, unknown, pending, 19);
 	if (value.virtual_locations !== null && value.virtual_locations !== void 0) {
 		const present = value.virtual_locations;
 		w.key(19, 2);
-		w.string(canonicalJson(present));
+		w.string(canonicalJson$1(present));
 	}
 	pending = flushUnknownBefore$1(w, unknown, pending, 20);
 	if (value.alerts !== null && value.alerts !== void 0) {
 		const present = value.alerts;
 		w.key(20, 2);
-		w.string(canonicalJson(present));
+		w.string(canonicalJson$1(present));
 	}
 	pending = flushUnknownBefore$1(w, unknown, pending, 21);
 	if (value.links !== null && value.links !== void 0) {
 		const present = value.links;
 		w.key(21, 2);
-		w.string(canonicalJson(present));
+		w.string(canonicalJson$1(present));
 	}
 	pending = flushUnknownBefore$1(w, unknown, pending, 22);
 	if (value.related_to !== null && value.related_to !== void 0) {
 		const present = value.related_to;
 		w.key(22, 2);
-		w.string(canonicalJson(present));
+		w.string(canonicalJson$1(present));
 	}
 	pending = flushUnknownBefore$1(w, unknown, pending, 23);
 	if (value.localizations !== null && value.localizations !== void 0) {
 		const present = value.localizations;
 		w.key(23, 2);
-		w.string(canonicalJson(present));
+		w.string(canonicalJson$1(present));
 	}
 	pending = flushUnknownBefore$1(w, unknown, pending, 24);
 	if (value.recurrence_overrides !== null && value.recurrence_overrides !== void 0) {
 		const present = value.recurrence_overrides;
 		w.key(24, 2);
-		w.string(canonicalJson(present));
+		w.string(canonicalJson$1(present));
 	}
 	pending = flushUnknownBefore$1(w, unknown, pending, 25);
 	if (value.recurrence_rules !== null && value.recurrence_rules !== void 0) {
@@ -7317,13 +7317,22 @@ var OP_VERBS = [
 	"write",
 	"trash",
 	"history",
-	"restore-version"
+	"restore-version",
+	"google-status",
+	"google-sync",
+	"google-link",
+	"google-unlink",
+	"google-disconnect"
 ];
 /** Verbs that mutate data, and so need a write-implying grant. */
 var WRITE_VERBS = /* @__PURE__ */ new Set([
 	"write",
 	"trash",
-	"restore-version"
+	"restore-version",
+	"google-sync",
+	"google-link",
+	"google-unlink",
+	"google-disconnect"
 ]);
 /** Splits `calendar-restore-version` into its collection and verb. */
 function parseOp(type) {
@@ -7343,6 +7352,1095 @@ function parseOp(type) {
 */
 function opNeedsWrite(verb) {
 	return WRITE_VERBS.has(verb);
+}
+//#endregion
+//#region src/vault/google/client.ts
+var GOOGLE_API = "https://www.googleapis.com";
+var MAX_ATTEMPTS = 3;
+var GoogleApiError = class extends Error {
+	constructor(status, body) {
+		super(`google api ${status}: ${body.slice(0, 200)}`);
+		this.status = status;
+		this.body = body;
+		this.name = "GoogleApiError";
+	}
+};
+/** The sync cursor predates Google's purge horizon: the next pull must be full. */
+var GoogleSyncTokenError = class extends Error {
+	constructor() {
+		super("google sync token expired");
+		this.name = "GoogleSyncTokenError";
+	}
+};
+/** The event is gone at Google — already deleted, or never landed. */
+var GoogleEventGoneError = class extends Error {
+	constructor() {
+		super("google event gone");
+		this.name = "GoogleEventGoneError";
+	}
+};
+/**
+* A Google access token with an expiry, minted on demand. The mint call goes to
+* the neoworks oauth origin, which holds the refresh token; caching keeps a sync
+* pass to one mint instead of one per request.
+*/
+var GoogleToken = class {
+	constructor(mint) {
+		this.mint = mint;
+		this.value = null;
+	}
+	async get() {
+		if (this.value) return this.value;
+		this.value = await this.mint();
+		return this.value;
+	}
+	/** Forgets the cached token, so the next `get` mints a fresh one. */
+	invalidate() {
+		this.value = null;
+	}
+};
+var GoogleCalendarClient = class {
+	constructor(deps) {
+		this.deps = deps;
+		this.baseUrl = deps.baseUrl || GOOGLE_API;
+		if (deps.fetch) this.fetchImpl = deps.fetch;
+		else this.fetchImpl = fetch;
+		if (typeof deps.retryDelayMs === "number") this.retryDelayMs = deps.retryDelayMs;
+		else this.retryDelayMs = 500;
+	}
+	/**
+	* One page of events. With a syncToken this is incremental and includes
+	* cancelled events (the only way a deletion is ever reported); without one it
+	* is a full listing of what currently exists.
+	*/
+	async listEvents(calendarId, options = {}) {
+		const path = `/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?${listQuery(options)}`;
+		const response = await this.send("GET", path);
+		if (response.status === 410) throw new GoogleSyncTokenError();
+		const page = await this.readOrThrow(response);
+		return {
+			items: page.items || [],
+			nextPageToken: page.nextPageToken,
+			nextSyncToken: page.nextSyncToken
+		};
+	}
+	/**
+	* Creates or replaces an event *keeping the supplied iCalUID*. events.insert
+	* would mint Google's own, which severs the join with the jsCalendar uid and
+	* turns the next pull into a duplicate.
+	*/
+	async importEvent(calendarId, event) {
+		const path = `/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/import?sendUpdates=none`;
+		const response = await this.send("POST", path, event);
+		return this.readOrThrow(response);
+	}
+	async updateEvent(calendarId, eventId, event) {
+		const path = `/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}?sendUpdates=none`;
+		const response = await this.send("PUT", path, event);
+		if (response.status === 404 || response.status === 410) throw new GoogleEventGoneError();
+		return this.readOrThrow(response);
+	}
+	/** Deleting something already deleted is success, not an error. */
+	async deleteEvent(calendarId, eventId) {
+		const path = `/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}?sendUpdates=none`;
+		const response = await this.send("DELETE", path);
+		if (response.status === 404 || response.status === 410) return;
+		await this.readOrThrow(response);
+	}
+	/**
+	* One request with the two retries that matter: a 401 means the cached token
+	* went stale mid-pass and a fresh mint fixes it; 429 and 5xx are Google asking
+	* us to slow down.
+	*/
+	async send(method, path, body) {
+		let response = await this.attempt(method, path, body);
+		if (response.status === 401) {
+			this.deps.token.invalidate();
+			response = await this.attempt(method, path, body);
+		}
+		for (let attempt = 1; attempt < MAX_ATTEMPTS && isTransient(response.status); attempt++) {
+			await sleep(this.retryDelayMs * attempt);
+			response = await this.attempt(method, path, body);
+		}
+		return response;
+	}
+	async attempt(method, path, body) {
+		const headers = { Authorization: `Bearer ${await this.deps.token.get()}` };
+		if (body !== void 0) headers["Content-Type"] = "application/json";
+		return this.fetchImpl(`${this.baseUrl}${path}`, {
+			method,
+			headers,
+			body: bodyOf$1(body)
+		});
+	}
+	async readOrThrow(response) {
+		const text = await response.text();
+		if (!response.ok) throw new GoogleApiError(response.status, text);
+		if (!text) return {};
+		return JSON.parse(text);
+	}
+};
+function listQuery(options) {
+	const query = new URLSearchParams();
+	query.set("maxResults", String(options.maxResults || 250));
+	query.set("singleEvents", "false");
+	if (options.syncToken) query.set("syncToken", options.syncToken);
+	if (options.pageToken) query.set("pageToken", options.pageToken);
+	if (options.syncToken) query.set("showDeleted", "true");
+	return query.toString();
+}
+function isTransient(status) {
+	if (status === 429) return true;
+	return status >= 500;
+}
+function bodyOf$1(body) {
+	if (body === void 0) return void 0;
+	return JSON.stringify(body);
+}
+function sleep(ms) {
+	if (ms <= 0) return Promise.resolve();
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+//#endregion
+//#region src/vault/google/link.ts
+/** Matches the Go handler's cap on one SaveEventLinks transaction. */
+var MAX_EVENT_LINK_BATCH = 500;
+var GoogleLinkError = class extends Error {
+	constructor(code, status) {
+		super(`google link: ${code}`);
+		this.code = code;
+		this.status = status;
+		this.name = "GoogleLinkError";
+	}
+};
+var GoogleLinkClient = class {
+	constructor(deps) {
+		this.deps = deps;
+		this.baseUrl = deps.baseUrl || "";
+		if (deps.fetch) this.fetchImpl = deps.fetch;
+		else this.fetchImpl = fetch;
+	}
+	/** Whether an account is linked, and to which Google identity. */
+	async status() {
+		return this.request("GET", "/google/link");
+	}
+	/** Revokes at Google and drops the account plus all sync state. */
+	async disconnect() {
+		await this.request("DELETE", "/google/link");
+	}
+	/**
+	* A currently-valid Google access token. The server refreshes it when needed;
+	* the refresh token never leaves it, and no app ever sees either.
+	*/
+	async accessToken() {
+		return (await this.request("GET", "/google/token")).access_token;
+	}
+	/** Google's calendarList, proxied — the picker's source, including accessRole. */
+	async calendars() {
+		return (await this.request("GET", "/google/calendars")).items || [];
+	}
+	async calendarLinks() {
+		return (await this.request("GET", "/google/calendar-links")).links || [];
+	}
+	/**
+	* Upserts one calendar -> space mapping. `sync_token` is three-valued: omit it
+	* to leave Google's cursor alone, pass a string to advance it, pass `""` to
+	* clear it — which is what a 410 from Google means.
+	*/
+	async saveCalendarLink(link) {
+		await this.request("PUT", "/google/calendar-links", link);
+	}
+	async deleteCalendarLink(googleCalendarId) {
+		await this.request("DELETE", `/google/calendar-links?google_calendar_id=${encodeURIComponent(googleCalendarId)}`);
+	}
+	async eventLinks(googleCalendarId) {
+		return (await this.request("GET", eventLinksPath(googleCalendarId))).links || [];
+	}
+	/** Chunked to the server's per-transaction cap; a first full sync exceeds it easily. */
+	async saveEventLinks(links) {
+		for (let start = 0; start < links.length; start += MAX_EVENT_LINK_BATCH) await this.request("PUT", "/google/event-links", { links: links.slice(start, start + MAX_EVENT_LINK_BATCH) });
+	}
+	async deleteEventLink(uid) {
+		await this.request("DELETE", `/google/event-links?uid=${encodeURIComponent(uid)}`);
+	}
+	async request(method, path, body) {
+		let response = await this.send(method, path, this.deps.getToken(), body);
+		if (response.status === 401) response = await this.retryRefreshed(method, path, body, response);
+		const payload = await readJson(response);
+		if (!response.ok) throw new GoogleLinkError(errorCodeOf(payload, response.status), response.status);
+		return payload;
+	}
+	async retryRefreshed(method, path, body, failed) {
+		if (!this.deps.refreshToken) return failed;
+		const refreshed = await this.deps.refreshToken();
+		if (!refreshed) return failed;
+		return this.send(method, path, refreshed, body);
+	}
+	send(method, path, token, body) {
+		const headers = {};
+		if (token) headers.Authorization = `Bearer ${token}`;
+		if (body !== void 0) headers["Content-Type"] = "application/json";
+		return this.fetchImpl(`${this.baseUrl}${path}`, {
+			method,
+			headers,
+			body: bodyOf(body)
+		});
+	}
+};
+function eventLinksPath(googleCalendarId) {
+	if (!googleCalendarId) return "/google/event-links";
+	return `/google/event-links?google_calendar_id=${encodeURIComponent(googleCalendarId)}`;
+}
+function bodyOf(body) {
+	if (body === void 0) return void 0;
+	return JSON.stringify(body);
+}
+async function readJson(response) {
+	try {
+		return await response.json();
+	} catch {
+		return {};
+	}
+}
+function errorCodeOf(payload, status) {
+	if (typeof payload.error === "string") return payload.error;
+	return `http_${status}`;
+}
+//#endregion
+//#region src/vault/google/hash.ts
+/** Stable JSON: object keys sorted, so key order cannot change the digest. */
+function canonicalJson(value) {
+	if (value === null || typeof value !== "object") return JSON.stringify(value);
+	if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+	return canonicalObject(value);
+}
+function canonicalObject(value) {
+	const fields = [];
+	for (const key of Object.keys(value).sort()) {
+		if (value[key] === void 0) continue;
+		fields.push(`${JSON.stringify(key)}:${canonicalJson(value[key])}`);
+	}
+	return `{${fields.join(",")}}`;
+}
+/** SHA-256 of the canonical form, hex encoded. */
+async function contentHash(value) {
+	const bytes = new TextEncoder().encode(canonicalJson(value));
+	const digest = await crypto.subtle.digest("SHA-256", bytes);
+	return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+//#endregion
+//#region src/vault/google/time.ts
+var FORMATTERS = /* @__PURE__ */ new Map();
+function formatterFor(zone) {
+	const cached = FORMATTERS.get(zone);
+	if (cached) return cached;
+	const formatter = new Intl.DateTimeFormat("en-US", {
+		timeZone: zone,
+		hourCycle: "h23",
+		year: "numeric",
+		month: "2-digit",
+		day: "2-digit",
+		hour: "2-digit",
+		minute: "2-digit",
+		second: "2-digit"
+	});
+	FORMATTERS.set(zone, formatter);
+	return formatter;
+}
+/** The zone's wall clock at an instant, expressed as UTC-based milliseconds. */
+function wallClockAsUtc(instant, zone) {
+	const field = {};
+	for (const part of formatterFor(zone).formatToParts(new Date(instant))) {
+		if (part.type === "literal") continue;
+		field[part.type] = Number(part.value);
+	}
+	let hour = field.hour;
+	if (hour === 24) hour = 0;
+	return Date.UTC(field.year, field.month - 1, field.day, hour, field.minute, field.second);
+}
+/** How far the zone runs ahead of UTC at a given instant, in milliseconds. */
+function offsetAt(instant, zone) {
+	return wallClockAsUtc(instant, zone) - instant;
+}
+/** Reads a LocalDateTime as if its wall clock were UTC. Tolerates a stray offset. */
+function naiveUtc(local) {
+	const withoutOffset = local.replace(/([zZ]|[+-]\d\d:?\d\d)$/, "");
+	return Date.parse(`${withoutOffset}Z`);
+}
+/** `YYYY-MM-DDTHH:mm:ss` from UTC-based milliseconds. */
+function isoWallClock(utcMillis) {
+	return new Date(utcMillis).toISOString().slice(0, 19);
+}
+/** A jsCalendar LocalDateTime plus its zone, resolved to an instant. */
+function zonedToInstant(local, zone) {
+	const naive = naiveUtc(local);
+	if (!zone) return new Date(naive);
+	const guess = naive - offsetAt(naive, zone);
+	return new Date(naive - offsetAt(guess, zone));
+}
+/** An instant rendered as the wall clock a viewer in `zone` would read. */
+function instantToZoned(date, zone) {
+	if (!zone) return isoWallClock(date.getTime());
+	return isoWallClock(wallClockAsUtc(date.getTime(), zone));
+}
+var DURATION_PATTERN = /^(-)?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/;
+/** ISO-8601 duration -> milliseconds. Unparseable or absent reads as zero. */
+function durationToMs(duration) {
+	if (!duration) return 0;
+	const match = duration.match(DURATION_PATTERN);
+	if (!match) return 0;
+	const [, sign, weeks, days, hours, minutes, seconds] = match;
+	const total = (Number(weeks || 0) * 7 * 86400 + Number(days || 0) * 86400 + Number(hours || 0) * 3600 + Number(minutes || 0) * 60 + Number(seconds || 0)) * 1e3;
+	if (sign) return -total;
+	return total;
+}
+/** Milliseconds -> a compact ISO-8601 duration. Negative spans clamp to zero. */
+function msToDuration(ms) {
+	let seconds = Math.max(0, Math.round(ms / 1e3));
+	const days = Math.floor(seconds / 86400);
+	seconds -= days * 86400;
+	const hours = Math.floor(seconds / 3600);
+	seconds -= hours * 3600;
+	const minutes = Math.floor(seconds / 60);
+	seconds -= minutes * 60;
+	return joinDuration(days, hours, minutes, seconds);
+}
+function joinDuration(days, hours, minutes, seconds) {
+	let out = "P";
+	if (days) out += `${days}D`;
+	if (!hours && !minutes && !seconds && out !== "P") return out;
+	out += "T";
+	if (hours) out += `${hours}H`;
+	if (minutes) out += `${minutes}M`;
+	if (seconds || !hours && !minutes) out += `${seconds}S`;
+	return out;
+}
+/** `YYYY-MM-DD` shifted by whole days, staying on the calendar grid. */
+function shiftDate(date, days) {
+	const at = Date.parse(`${date}T00:00:00Z`);
+	return new Date(at + days * 864e5).toISOString().slice(0, 10);
+}
+/** An instant as an RFC 5545 UTC date-time, e.g. `20260614T070000Z`. */
+function toIcalUtc(date) {
+	return `${date.toISOString().slice(0, 19).replace(/[-:]/g, "")}Z`;
+}
+/** RFC 5545 date-time (`20260614T090000`, optionally `Z`) -> a LocalDateTime. */
+function fromIcalLocal(value) {
+	const digits = value.replace(/[zZ]$/, "");
+	if (digits.length < 8) return value;
+	const date = `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`;
+	if (digits.length < 15) return `${date}T00:00:00`;
+	return `${date}T${digits.slice(9, 11)}:${digits.slice(11, 13)}:${digits.slice(13, 15)}`;
+}
+//#endregion
+//#region src/vault/google/map.ts
+/**
+* The push payload for one stored event. Deterministic: the same row always
+* produces the same object, which is what makes hashing it a usable "already
+* pushed" guard across devices.
+*/
+function toGoogleEvent(row) {
+	const out = {
+		iCalUID: row.uid,
+		summary: row.title,
+		start: googleStart(row),
+		end: googleEnd(row)
+	};
+	if (row.description) out.description = row.description;
+	if (row.status) out.status = row.status;
+	if (typeof row.sequence === "number") out.sequence = row.sequence;
+	const location = locationName(row.locations);
+	if (location) out.location = location;
+	const transparency = TO_GOOGLE_TRANSPARENCY[String(row.free_busy_status)];
+	if (transparency) out.transparency = transparency;
+	const visibility = TO_GOOGLE_VISIBILITY[String(row.privacy)];
+	if (visibility) out.visibility = visibility;
+	const attendees = toAttendees(row.participants);
+	if (attendees.length > 0) out.attendees = attendees;
+	const overrides = toReminderOverrides(row.alerts);
+	if (overrides.length > 0) out.reminders = {
+		useDefault: false,
+		overrides
+	};
+	const recurrence = toRecurrenceLines(row);
+	if (recurrence.length > 0) out.recurrence = recurrence;
+	return out;
+}
+function googleStart(row) {
+	if (row.show_without_time) return { date: row.start.slice(0, 10) };
+	const at = { dateTime: row.start.slice(0, 19) };
+	if (row.time_zone) at.timeZone = row.time_zone;
+	return at;
+}
+function googleEnd(row) {
+	if (row.show_without_time) return { date: allDayEndDate(row) };
+	const at = { dateTime: endWallClock(row) };
+	if (row.time_zone) at.timeZone = row.time_zone;
+	return at;
+}
+/** Google's all-day end is exclusive, and a zero-length all-day event is invalid. */
+function allDayEndDate(row) {
+	const days = Math.round(durationToMs(row.duration) / 864e5);
+	return shiftDate(row.start.slice(0, 10), Math.max(1, days));
+}
+/**
+* The wall clock at which the event ends, in its own zone. The duration is
+* elapsed time, so crossing a DST transition moves the end by more (or less)
+* than the duration reads — resolving it through the zone is the whole point.
+*/
+function endWallClock(row) {
+	const start = zonedToInstant(row.start, row.time_zone);
+	return instantToZoned(new Date(start.getTime() + durationToMs(row.duration)), row.time_zone);
+}
+var TO_GOOGLE_TRANSPARENCY = {
+	free: "transparent",
+	busy: "opaque"
+};
+var TO_GOOGLE_VISIBILITY = {
+	public: "public",
+	private: "private",
+	secret: "confidential"
+};
+var TO_GOOGLE_RESPONSE = {
+	"needs-action": "needsAction",
+	accepted: "accepted",
+	declined: "declined",
+	tentative: "tentative"
+};
+function toAttendees(participants) {
+	const map = asMap(participants);
+	if (!map) return [];
+	const out = [];
+	for (const entry of Object.values(map)) {
+		const attendee = toAttendee(entry);
+		if (attendee) out.push(attendee);
+	}
+	return out;
+}
+/** Google identifies an attendee by email, so a participant without one is unsendable. */
+function toAttendee(raw) {
+	const participant = raw;
+	const email = participantEmail(participant);
+	if (!email) return null;
+	const out = { email };
+	if (participant.name) out.displayName = participant.name;
+	const response = TO_GOOGLE_RESPONSE[String(participant.participationStatus)];
+	if (response) out.responseStatus = response;
+	if (participant.roles && participant.roles.optional) out.optional = true;
+	return out;
+}
+function toReminderOverrides(alerts) {
+	const map = asMap(alerts);
+	if (!map) return [];
+	const out = [];
+	for (const entry of Object.values(map)) {
+		const reminder = toReminder(entry);
+		if (reminder) out.push(reminder);
+	}
+	return out;
+}
+/**
+* Google states a reminder as whole minutes before the start, so only alerts
+* with a non-positive offset relative to the start survive. An absolute trigger
+* or an alert after the start has no Google equivalent and is left behind.
+*/
+function toReminder(raw) {
+	const alert = raw;
+	if (!alert.trigger || !alert.trigger.offset) return null;
+	if (alert.trigger.relativeTo === "end") return null;
+	const minutes = Math.round(-durationToMs(alert.trigger.offset) / 6e4);
+	if (minutes < 0 || minutes > 40320) return null;
+	if (alert.action === "email") return {
+		method: "email",
+		minutes
+	};
+	return {
+		method: "popup",
+		minutes
+	};
+}
+function toRecurrenceLines(row) {
+	const lines = [];
+	for (const rule of row.recurrence_rules || []) lines.push(`RRULE:${ruleToIcal(rule, row.time_zone)}`);
+	for (const rule of row.excluded_recurrence_rules || []) lines.push(`EXRULE:${ruleToIcal(rule, row.time_zone)}`);
+	const excluded = excludedInstances(row.recurrence_overrides);
+	if (excluded.length > 0) lines.push(exdateLine(excluded, row));
+	return lines;
+}
+function ruleToIcal(rule, zone) {
+	const parts = [`FREQ=${rule.frequency.toUpperCase()}`];
+	if (rule.interval && rule.interval > 1) parts.push(`INTERVAL=${rule.interval}`);
+	if (rule.count) parts.push(`COUNT=${rule.count}`);
+	if (rule.until) parts.push(`UNTIL=${toIcalUtc(zonedToInstant(rule.until, zone))}`);
+	if (rule.first_day_of_week) parts.push(`WKST=${rule.first_day_of_week.toUpperCase()}`);
+	if (rule.by_day && rule.by_day.length > 0) parts.push(`BYDAY=${rule.by_day.map(toByDayToken).join(",")}`);
+	if (rule.by_month_day && rule.by_month_day.length > 0) parts.push(`BYMONTHDAY=${rule.by_month_day.join(",")}`);
+	if (rule.by_month && rule.by_month.length > 0) parts.push(`BYMONTH=${rule.by_month.join(",")}`);
+	if (rule.by_set_position && rule.by_set_position.length > 0) parts.push(`BYSETPOS=${rule.by_set_position.join(",")}`);
+	return parts.join(";");
+}
+function toByDayToken(day) {
+	if (typeof day.nth_of_period !== "number") return day.day.toUpperCase();
+	return `${day.nth_of_period}${day.day.toUpperCase()}`;
+}
+function exdateLine(instances, row) {
+	if (row.show_without_time) return `EXDATE;VALUE=DATE:${instances.map((at) => at.slice(0, 10).replace(/-/g, "")).join(",")}`;
+	const values = instances.map((at) => at.slice(0, 19).replace(/[-:]/g, "")).join(",");
+	if (!row.time_zone) return `EXDATE:${values}`;
+	return `EXDATE;TZID=${row.time_zone}:${values}`;
+}
+/** Override keys whose only content is `excluded: true` — jsCalendar's EXDATE. */
+function excludedInstances(overrides) {
+	const map = asMap(overrides);
+	if (!map) return [];
+	const out = [];
+	for (const [at, patch] of Object.entries(map)) if (isExclusion(patch)) out.push(at);
+	return out.sort();
+}
+function isExclusion(patch) {
+	if (!patch || typeof patch !== "object") return false;
+	return patch.excluded === true;
+}
+/**
+* The stored-row fields a pulled Google event decides. Every key in
+* GOOGLE_OWNED_FIELDS is present, `undefined` where Google says the field is
+* empty, so spreading this over the existing row clears what was cleared in
+* Google without touching anything Google cannot express.
+*/
+function fromGoogleEvent(event, existing) {
+	const timing = timingOf(event);
+	return {
+		uid: event.iCalUID,
+		title: event.summary || "",
+		description: event.description,
+		start: timing.start,
+		duration: timing.duration,
+		time_zone: timing.zone,
+		show_without_time: timing.allDay,
+		status: fromGoogleStatus(event.status),
+		free_busy_status: FROM_GOOGLE_TRANSPARENCY[String(event.transparency)],
+		privacy: FROM_GOOGLE_VISIBILITY[String(event.visibility)],
+		sequence: event.sequence,
+		participants: fromAttendees(event.attendees),
+		locations: fromLocation(event.location),
+		alerts: fromReminders(event.reminders),
+		...fromRecurrence(event, existing, timing.zone)
+	};
+}
+function timingOf(event) {
+	const start = event.start || {};
+	const span = instantOf(event.end || start).getTime() - instantOf(start).getTime();
+	if (start.date) return {
+		start: `${start.date}T00:00:00`,
+		duration: msToDuration(span),
+		zone: void 0,
+		allDay: true
+	};
+	return {
+		start: localWallClock(start),
+		duration: msToDuration(span),
+		zone: start.timeZone,
+		allDay: false
+	};
+}
+/**
+* An offset-bearing RFC 3339 string is already an instant; without one the value
+* is a wall clock that only `timeZone` can place.
+*/
+function instantOf(at) {
+	if (at.date) return /* @__PURE__ */ new Date(`${at.date}T00:00:00Z`);
+	const dateTime = at.dateTime || "";
+	if (/([zZ]|[+-]\d\d:?\d\d)$/.test(dateTime)) return new Date(dateTime);
+	return zonedToInstant(dateTime, at.timeZone);
+}
+/**
+* The wall clock Google's own user reads. The offset in `dateTime` is the one in
+* force at that instant in `timeZone`, so the local part of the string is
+* already the answer — stripping it is a conversion, not a truncation.
+*/
+function localWallClock(at) {
+	const dateTime = at.dateTime || "";
+	if (/[zZ]$/.test(dateTime) && at.timeZone) return instantToZoned(new Date(dateTime), at.timeZone);
+	return dateTime.replace(/([zZ]|[+-]\d\d:?\d\d)$/, "").slice(0, 19);
+}
+var FROM_GOOGLE_TRANSPARENCY = {
+	transparent: "free",
+	opaque: "busy"
+};
+var FROM_GOOGLE_VISIBILITY = {
+	public: "public",
+	private: "private",
+	confidential: "secret"
+};
+var FROM_GOOGLE_RESPONSE = {
+	needsAction: "needs-action",
+	accepted: "accepted",
+	declined: "declined",
+	tentative: "tentative"
+};
+/** `cancelled` is a tombstone on the wire, handled by the caller, not a status. */
+function fromGoogleStatus(status) {
+	if (status === "confirmed" || status === "tentative") return status;
+}
+function fromAttendees(attendees) {
+	if (!attendees || attendees.length === 0) return void 0;
+	const out = {};
+	attendees.forEach((attendee, index) => {
+		out[attendeeKey(attendee, index)] = fromAttendee(attendee);
+	});
+	return out;
+}
+/** Keyed by email, matching what the app writes, so the round trip is stable. */
+function attendeeKey(attendee, index) {
+	if (attendee.email) return attendee.email;
+	return `attendee-${index}`;
+}
+function fromAttendee(attendee) {
+	const out = {
+		"@type": "Participant",
+		roles: { attendee: true }
+	};
+	if (attendee.displayName) out.name = attendee.displayName;
+	if (attendee.email) out.sendTo = { imip: `mailto:${attendee.email}` };
+	if (attendee.optional) out.roles = {
+		attendee: true,
+		optional: true
+	};
+	const status = FROM_GOOGLE_RESPONSE[String(attendee.responseStatus)];
+	if (status) out.participationStatus = status;
+	return out;
+}
+function fromLocation(location) {
+	if (!location || location.trim() === "") return void 0;
+	return { "loc-1": {
+		"@type": "Location",
+		name: location.trim()
+	} };
+}
+function fromReminders(reminders) {
+	if (!reminders || !reminders.overrides || reminders.overrides.length === 0) return void 0;
+	const out = {};
+	reminders.overrides.forEach((reminder, index) => {
+		out[`reminder-${index}`] = fromReminder(reminder);
+	});
+	return out;
+}
+function fromReminder(reminder) {
+	const out = {
+		"@type": "Alert",
+		trigger: {
+			"@type": "OffsetTrigger",
+			relativeTo: "start",
+			offset: offsetBefore(Math.max(0, Math.round(reminder.minutes || 0)))
+		}
+	};
+	if (reminder.method === "email") out.action = "email";
+	return out;
+}
+function offsetBefore(minutes) {
+	if (minutes === 0) return "PT0S";
+	return `-PT${minutes}M`;
+}
+/**
+* RRULE / EXRULE / EXDATE. RDATE has no jsCalendar slot in this schema subset
+* and is dropped; per-instance patches live in separate Google event resources
+* (see `recurringEventId`), which the sync loop skips rather than flattens.
+*/
+function fromRecurrence(event, existing, zone) {
+	const rules = [];
+	const excludedRules = [];
+	const excludedInstances = [];
+	for (const line of event.recurrence || []) collectRecurrenceLine(line, {
+		rules,
+		excludedRules,
+		excludedInstances
+	}, zone);
+	return {
+		recurrence_rules: emptyToUndefined(rules),
+		excluded_recurrence_rules: emptyToUndefined(excludedRules),
+		recurrence_overrides: mergeExclusions(existing, excludedInstances)
+	};
+}
+function collectRecurrenceLine(line, sink, zone) {
+	const separator = line.indexOf(":");
+	if (separator < 0) return;
+	const name = line.slice(0, separator).split(";")[0].toUpperCase();
+	const value = line.slice(separator + 1);
+	if (name === "RRULE") sink.rules.push(icalToRule(value, zone));
+	if (name === "EXRULE") sink.excludedRules.push(icalToRule(value, zone));
+	if (name === "EXDATE") sink.excludedInstances.push(...value.split(",").map(fromIcalLocal));
+}
+function icalToRule(value, zone) {
+	const parts = /* @__PURE__ */ new Map();
+	for (const pair of value.split(";")) {
+		const equals = pair.indexOf("=");
+		if (equals > 0) parts.set(pair.slice(0, equals).toUpperCase(), pair.slice(equals + 1));
+	}
+	return ruleFromParts(parts, zone);
+}
+function ruleFromParts(parts, zone) {
+	const rule = { frequency: (parts.get("FREQ") || "DAILY").toLowerCase() };
+	const interval = Number(parts.get("INTERVAL"));
+	if (interval > 1) rule.interval = interval;
+	const count = Number(parts.get("COUNT"));
+	if (count > 0) rule.count = count;
+	const until = parts.get("UNTIL");
+	if (until) rule.until = untilToLocal(until, zone);
+	const weekStart = parts.get("WKST");
+	if (weekStart) rule.first_day_of_week = weekStart.toLowerCase();
+	const byDay = parts.get("BYDAY");
+	if (byDay) rule.by_day = byDay.split(",").map(fromByDayToken);
+	const byMonthDay = parts.get("BYMONTHDAY");
+	if (byMonthDay) rule.by_month_day = byMonthDay.split(",").map(Number);
+	const byMonth = parts.get("BYMONTH");
+	if (byMonth) rule.by_month = byMonth.split(",");
+	const bySetPosition = parts.get("BYSETPOS");
+	if (bySetPosition) rule.by_set_position = bySetPosition.split(",").map(Number);
+	return rule;
+}
+/** A UTC UNTIL becomes the wall clock the series' own zone reads at that instant. */
+function untilToLocal(until, zone) {
+	if (!/[zZ]$/.test(until) || !zone) return fromIcalLocal(until);
+	return instantToZoned(/* @__PURE__ */ new Date(`${fromIcalLocal(until)}Z`), zone);
+}
+function fromByDayToken(token) {
+	const match = token.trim().match(/^([+-]?\d+)?([A-Za-z]{2})$/);
+	if (!match) return { day: token.trim().toLowerCase() };
+	const day = { day: match[2].toLowerCase() };
+	if (match[1]) day.nth_of_period = Number(match[1]);
+	return day;
+}
+/**
+* Exclusions are Google's to set, but per-instance patches are not — Google has
+* no field for them, so the stored ones are carried across rather than dropped.
+*/
+function mergeExclusions(existing, excluded) {
+	const kept = {};
+	const previous = asMap(existing && existing.recurrence_overrides);
+	for (const [at, patch] of Object.entries(previous || {})) if (!isExclusion(patch)) kept[at] = patch;
+	for (const at of excluded) kept[at] = { excluded: true };
+	if (Object.keys(kept).length === 0) return void 0;
+	return kept;
+}
+function participantEmail(participant) {
+	if (participant.email) return participant.email;
+	if (participant.sendTo && participant.sendTo.imip) return participant.sendTo.imip.replace(/^mailto:/, "");
+	return null;
+}
+function locationName(locations) {
+	const map = asMap(locations);
+	if (!map) return null;
+	const first = Object.values(map)[0];
+	if (!first || !first.name) return null;
+	return first.name;
+}
+/** jsCalendar's schemaless collections are `json` in the codec, so they arrive as `unknown`. */
+function asMap(value) {
+	if (!value || typeof value !== "object") return null;
+	return value;
+}
+function emptyToUndefined(values) {
+	if (values.length === 0) return void 0;
+	return values;
+}
+//#endregion
+//#region src/vault/google/types.ts
+/** Roles that may be written back to. Anything else is import-only. */
+function canPushTo(accessRole) {
+	return accessRole === "owner" || accessRole === "writer";
+}
+//#endregion
+//#region src/vault/google/sync.ts
+var GoogleCalendarSync = class {
+	constructor(deps) {
+		this.deps = deps;
+		this.db = new CollectionDb("calendar");
+	}
+	/** The link state the picker renders: the account, Google's calendars, our links. */
+	async status() {
+		const account = await this.deps.links.status();
+		if (!account.linked) return {
+			linked: false,
+			calendars: [],
+			links: []
+		};
+		const links = await this.deps.links.calendarLinks();
+		try {
+			return {
+				linked: true,
+				email: account.email,
+				calendars: await this.deps.links.calendars(),
+				links
+			};
+		} catch (error) {
+			return {
+				linked: true,
+				email: account.email,
+				calendars: [],
+				links,
+				error: messageOf(error)
+			};
+		}
+	}
+	/** Maps one Google calendar onto one space, or updates that mapping. */
+	async linkCalendar(link) {
+		await this.deps.links.saveCalendarLink(link);
+	}
+	/** Stops syncing one calendar and forgets its cursor and event joins. */
+	async unlinkCalendar(googleCalendarId) {
+		await this.deps.links.deleteCalendarLink(googleCalendarId);
+	}
+	/** Revokes the Google grant and drops every trace of the link. */
+	async disconnect() {
+		await this.deps.links.disconnect();
+	}
+	async syncAll() {
+		const links = await this.deps.links.calendarLinks();
+		const calendars = [];
+		for (const link of links) if (link.enabled) calendars.push(await this.syncCalendar(link));
+		return { calendars };
+	}
+	/** Per-calendar failures are reported, not thrown: one bad calendar must not stop the rest. */
+	async syncCalendar(link) {
+		const report = emptyReport(link.google_calendar_id);
+		const joins = await this.linkedEvents(link.google_calendar_id);
+		try {
+			await this.pull(link, joins, report);
+			await this.push(link, joins, report);
+		} catch (error) {
+			report.error = messageOf(error);
+		}
+		return report;
+	}
+	async pull(link, joins, report) {
+		try {
+			await this.pullFrom(link, link.sync_token, joins, report);
+		} catch (error) {
+			if (nameOf(error) !== "GoogleSyncTokenError") throw error;
+			await this.saveCursor(link, "");
+			await this.pullFrom(link, null, joins, report);
+		}
+	}
+	async pullFrom(link, syncToken, joins, report) {
+		let pageToken;
+		for (;;) {
+			const page = await this.deps.google.listEvents(link.google_calendar_id, {
+				syncToken,
+				pageToken
+			});
+			await this.applyPage(link, page.items, joins, report);
+			if (page.nextPageToken) {
+				pageToken = page.nextPageToken;
+				continue;
+			}
+			await this.saveCursor(link, page.nextSyncToken);
+			return;
+		}
+	}
+	async applyPage(link, events, joins, report) {
+		const byUid = await this.localByUid(link.space_id);
+		const linked = [];
+		const removed = [];
+		for (const event of events) tally(report, await this.applyEvent(link, event, byUid, joins), linked, removed);
+		await this.deps.links.saveEventLinks(linked);
+		for (const uid of removed) await this.deps.links.deleteEventLink(uid);
+		applyToJoins(joins, linked, removed);
+	}
+	async applyEvent(link, event, byUid, joins) {
+		if (event.recurringEventId) return { kind: "instance" };
+		if (!event.iCalUID || !event.id) return { kind: "skipped" };
+		const existing = byUid.get(event.iCalUID);
+		if (event.status === "cancelled") return this.trashPulled(event.iCalUID, existing);
+		return this.writePulled(link, event, event.iCalUID, existing, joins);
+	}
+	async trashPulled(uid, existing) {
+		if (!existing) return { kind: "skipped" };
+		if (existing.data.deleted) return {
+			kind: "trashed",
+			uid
+		};
+		await this.deps.engine.write({
+			...existing.data,
+			id: existing.id,
+			deleted: true
+		}, existing.spaceId);
+		return {
+			kind: "trashed",
+			uid
+		};
+	}
+	/**
+	* Merges Google's version over the stored row rather than replacing it: the
+	* fields Google cannot express (`priority`, `color`, `keywords`, `links`, …)
+	* would otherwise read as cleared and be erased on every pull.
+	*/
+	async writePulled(link, event, uid, existing, joins) {
+		const base = dataOf(existing);
+		const merged = {
+			...base,
+			...fromGoogleEvent(event, base),
+			uid
+		};
+		const incoming = await contentHash(toGoogleEvent(merged));
+		if (existing && await this.isStaleEcho(existing, incoming, joins.get(uid))) return {
+			kind: "echo",
+			link: eventLinkOf(link, uid, event.id, incoming)
+		};
+		const input = { ...merged };
+		if (existing) input.id = existing.id;
+		await this.deps.engine.write(input, link.space_id);
+		return {
+			kind: "stored",
+			link: eventLinkOf(link, uid, event.id, incoming)
+		};
+	}
+	/**
+	* Whether a pulled event should be dropped rather than written.
+	*
+	* Two cases, and telling them apart is what stops the loop eating an edit.
+	* The event is already what we hold, so writing it would mint a version and an
+	* outbox entry on every poll and an idle calendar would never settle. Or it is
+	* our *own* last push echoing back while the local row has moved on since —
+	* Google is reporting the state we agreed on, not a newer one, so the pending
+	* push later in this pass is the truth and Google's copy must not overwrite it.
+	*/
+	async isStaleEcho(existing, incoming, join) {
+		if (incoming === await contentHash(toGoogleEvent(existing.data))) return true;
+		if (!join || !join.content_hash) return false;
+		return incoming === join.content_hash;
+	}
+	async saveCursor(link, syncToken) {
+		await this.deps.links.saveCalendarLink({
+			space_id: link.space_id,
+			google_calendar_id: link.google_calendar_id,
+			access_role: link.access_role,
+			enabled: link.enabled,
+			sync_token: syncToken
+		});
+	}
+	async push(link, joins, report) {
+		if (!canPushTo(link.access_role)) return;
+		const rows = await this.db.listItemsBySpace(link.space_id);
+		const linked = [];
+		for (const item of rows) {
+			const result = await this.pushRow(link, item, joins, report);
+			if (result) linked.push(result);
+		}
+		await this.deps.links.saveEventLinks(linked);
+		applyToJoins(joins, linked, []);
+		await this.reap(link, rows, joins, report);
+	}
+	async pushRow(link, item, joins, report) {
+		if (item.seq === 0) return null;
+		if (item.deleted) return null;
+		const existing = joins.get(item.data.uid);
+		if (item.data.deleted) {
+			await this.removeAtGoogle(link, item.data.uid, existing, report);
+			return null;
+		}
+		const payload = toGoogleEvent(item.data);
+		const hash = await contentHash(payload);
+		if (existing && existing.content_hash === hash) return null;
+		const googleEventId = await this.writeToGoogle(link, payload, existing);
+		report.pushed += 1;
+		return eventLinkOf(link, item.data.uid, googleEventId, hash);
+	}
+	async writeToGoogle(link, payload, existing) {
+		if (!existing) return idOf(await this.deps.google.importEvent(link.google_calendar_id, payload));
+		try {
+			return idOf(await this.deps.google.updateEvent(link.google_calendar_id, existing.google_event_id, payload));
+		} catch (error) {
+			if (nameOf(error) !== "GoogleEventGoneError") throw error;
+			return idOf(await this.deps.google.importEvent(link.google_calendar_id, payload));
+		}
+	}
+	async removeAtGoogle(link, uid, existing, report) {
+		if (!existing) return;
+		await this.deps.google.deleteEvent(link.google_calendar_id, existing.google_event_id);
+		await this.deps.links.deleteEventLink(uid);
+		report.removed += 1;
+	}
+	/**
+	* Events that vanished locally. An envelope tombstone leaves no row to inspect,
+	* so absence is the only signal there is — which makes this dangerous on a
+	* device that has not caught up, where "absent" means "not pulled yet". Hence
+	* the gate: reap only once this space is level with the server.
+	*/
+	async reap(link, rows, joins, report) {
+		if (!await this.caughtUp(link.space_id)) return;
+		const present = new Set(rows.filter((item) => !item.deleted).map((item) => item.data.uid));
+		for (const [uid, eventLink] of joins) if (!present.has(uid)) await this.removeAtGoogle(link, uid, eventLink, report);
+	}
+	async caughtUp(spaceId) {
+		const state = await this.db.getSpaceState(spaceId);
+		if (!state) return false;
+		return state.cursor >= state.latestSeq;
+	}
+	async localByUid(spaceId) {
+		const byUid = /* @__PURE__ */ new Map();
+		for (const item of await this.db.listItemsBySpace(spaceId)) if (!item.deleted) byUid.set(item.data.uid, item);
+		return byUid;
+	}
+	async linkedEvents(googleCalendarId) {
+		const joins = /* @__PURE__ */ new Map();
+		for (const link of await this.deps.links.eventLinks(googleCalendarId)) joins.set(link.uid, link);
+		return joins;
+	}
+};
+function tally(report, outcome, linked, removed) {
+	if (outcome.kind === "instance") report.skippedInstances += 1;
+	if (outcome.kind === "skipped") report.skipped += 1;
+	if (outcome.kind === "trashed") {
+		report.trashed += 1;
+		removed.push(outcome.uid);
+	}
+	if (outcome.kind === "stored") {
+		report.pulled += 1;
+		linked.push(outcome.link);
+	}
+	if (outcome.kind === "echo") {
+		report.unchanged += 1;
+		linked.push(outcome.link);
+	}
+}
+/** Keeps the in-pass join map level with what was just written to the server. */
+function applyToJoins(joins, linked, removed) {
+	for (const link of linked) joins.set(link.uid, link);
+	for (const uid of removed) joins.delete(uid);
+}
+function eventLinkOf(link, uid, googleEventId, hash) {
+	return {
+		uid,
+		google_calendar_id: link.google_calendar_id,
+		google_event_id: googleEventId,
+		content_hash: hash
+	};
+}
+function emptyReport(calendarId) {
+	return {
+		calendarId,
+		pulled: 0,
+		unchanged: 0,
+		trashed: 0,
+		pushed: 0,
+		removed: 0,
+		skippedInstances: 0,
+		skipped: 0
+	};
+}
+function dataOf(existing) {
+	if (!existing) return null;
+	return existing.data;
+}
+function idOf(event) {
+	if (!event.id) throw new Error("google returned an event with no id");
+	return event.id;
+}
+function nameOf(error) {
+	return String(error.name);
+}
+function messageOf(error) {
+	return String(error.message);
 }
 //#endregion
 //#region src/vault/host.ts
@@ -7380,6 +8478,36 @@ function createVaultStore(options) {
 		});
 		starting.set(collection, pass);
 		return pass;
+	}
+	let googleSync = null;
+	function googleSyncFor(collection) {
+		if (collection !== "calendar") throw new Error(`google sync is calendar-only: ${collection}`);
+		if (googleSync) return googleSync;
+		const links = new GoogleLinkClient({
+			baseUrl: options.googleBaseUrl,
+			getToken: options.getToken,
+			refreshToken: options.refreshToken,
+			fetch: options.fetchImpl
+		});
+		googleSync = new GoogleCalendarSync({
+			engine: engineFor(collectionSpec("calendar")),
+			links,
+			google: new GoogleCalendarClient({
+				token: new GoogleToken(() => links.accessToken()),
+				baseUrl: options.googleApiUrl,
+				fetch: options.fetchImpl
+			})
+		});
+		return googleSync;
+	}
+	/**
+	* A sync pass reads the engine's own store and writes through it, so the
+	* spaces have to be unlocked first even though the caller only asked to sync
+	* with Google.
+	*/
+	async function withStartedEngine(engine, collection) {
+		if (!engine.isStarted) await start(engine, collection, 3e4);
+		return googleSyncFor(collection);
 	}
 	async function handle(message) {
 		const op = parseOp(String(message.type));
@@ -7420,6 +8548,17 @@ function createVaultStore(options) {
 			case "restore-version":
 				await engine.restoreVersion(String(message.id), String(message.versionId));
 				return { restored: true };
+			case "google-status": return { status: await googleSyncFor(op.collection).status() };
+			case "google-sync": return { report: await (await withStartedEngine(engine, op.collection)).syncAll() };
+			case "google-link":
+				await googleSyncFor(op.collection).linkCalendar(message.link);
+				return { linked: true };
+			case "google-unlink":
+				await googleSyncFor(op.collection).unlinkCalendar(String(message.googleCalendarId));
+				return { unlinked: true };
+			case "google-disconnect":
+				await googleSyncFor(op.collection).disconnect();
+				return { linked: false };
 		}
 	}
 	return { handle };
