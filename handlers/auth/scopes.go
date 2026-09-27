@@ -35,15 +35,6 @@ var scopeCatalog = map[string]scopeView{
 	"photos:read":  {Name: "View your photos", Description: "Decrypt and display your photo library"},
 	"photos:write": {Name: "Add and edit photos", Description: "Encrypt and store new photos for you"},
 	"legacy:read":  {Name: "Read your existing encrypted data", Description: "Data created before per-app encryption scopes"},
-	// AI runtime scopes gate the local neod daemon. Chat/complete are conversation;
-	// the tool scopes let the agent touch your machine and are far more sensitive.
-	"ai:chat":     {Name: "Chat with AI", Description: "Send messages to the local or cloud AI"},
-	"ai:complete": {Name: "AI text completion", Description: "Autocomplete text and code"},
-	"ai:embed":    {Name: "Embed your text on-device", Description: "Turn your notes into search vectors locally, so recall never leaves your machine"},
-	"ai:fsread":   {Name: "Let AI read app files", Description: "Read files within the app's data directory"},
-	"ai:fswrite":  {Name: "Let AI write app files", Description: "Write files in the app's data directory (asks each time)"},
-	"ai:webfetch": {Name: "Let AI fetch web pages", Description: "Fetch content from URLs on your behalf"},
-	"ai:bash":     {Name: "Let AI run commands", Description: "Run sandboxed shell commands on your machine (asks each time)"},
 	// Linking a Google account is the one grant that moves data outside NeoWorks'
 	// encryption, so the copy says so rather than describing a capability.
 	"google:link": {Name: "Link your Google account", Description: "Sync calendars with Google — synced events are stored on Google's servers in plain text"},

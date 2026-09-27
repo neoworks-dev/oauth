@@ -7,12 +7,10 @@
 		<link rel="stylesheet" href="/auth/static/neoworks.css" />
 		<script src="/auth/static/libsodium.js"></script>
 		<script src="/auth/static/libsodium-wrappers.js"></script>
-		<!-- Double Ratchet engine, shared verbatim with the test suite. -->
+		<!-- Key engines, shared verbatim with the test suite. -->
 		<script type="module">
-			import { createRatchet } from '/auth/static/chat-ratchet.js';
 			import { createScopeKeys, decryptableLabels, writableLabels, spaceOpAllowed } from '/auth/static/scope-keys.js';
 			import { createSpaceKeys } from '/auth/static/space-keys.js';
-			window.__createRatchet = createRatchet;
 			window.__createScopeKeys = createScopeKeys;
 			window.__decryptableLabels = decryptableLabels;
 			window.__writableLabels = writableLabels;
@@ -34,8 +32,6 @@
 
 		<script>
 			(function () {
-				// Local AI runtime daemon origin the vault brokers ai-* ops to.
-				const DAEMON_URL = {{.DaemonURLJSON}};
 				// API origin the vault fetches directly for E2EE collection sync.
 				const API_URL = {{.APIURLJSON}};
 
@@ -43,8 +39,7 @@
 				let parentOrigin = null;
 				let email = null;
 				// The embedding client's access token, captured at vault-init. Used to
-				// authenticate the vault's brokered fetch to the AI daemon. Never posted
-				// back to the app.
+				// authenticate the vault's own API fetches. Never posted back to the app.
 				let accessToken = null;
 
 				// Account keypair derived from the AMK on unlock (X25519). The private
@@ -53,16 +48,6 @@
 				let myPubKey = null;
 				let myPrivKey = null;
 				const KEYPAIR_CONTEXT = 'nw-account-keypair-v1';
-				// Root secret for chat (Double Ratchet) device identities, kept keyed by
-				// the AMK so per-device identity keys are deterministically reproducible
-				// after recovery without ever storing a private key on the server.
-				let chatRootKey = null;
-				// Symmetric key that seals per-session ratchet state at rest. The app
-				// persists only the sealed blob; the server never sees ratchet state.
-				let chatStateKey = null;
-				let ratchet = null;
-				const CHAT_IDENTITY_CONTEXT = 'nw-chat-identity-v1';
-				const CHAT_STATE_CONTEXT = 'nw-chat-ratchet-state-v1';
 				// Cache AES-GCM keys by their wrapped-DEK string so multi-chunk objects
 				// don't re-unseal/re-import the DEK for every chunk.
 				const dekCache = new Map();
@@ -136,10 +121,6 @@
 					const keypair = sodium.crypto_box_seed_keypair(seed);
 					myPubKey = keypair.publicKey;
 					myPrivKey = keypair.privateKey;
-					// Derive the chat root before the AMK is zeroed; it stays in memory
-					// like myPrivKey and never leaves this page.
-					chatRootKey = sodium.crypto_generichash(32, sodium.from_string(CHAT_IDENTITY_CONTEXT), amkBytes);
-					chatStateKey = sodium.crypto_generichash(32, sodium.from_string(CHAT_STATE_CONTEXT), amkBytes);
 					// Resident scope-derivation secret. Lets us zero the literal AMK now
 					// yet still derive per-scope keypairs lazily for the lifetime of the
 					// session (no more sensitive than myPrivKey, which is already resident).
@@ -166,208 +147,6 @@
 						scopeKeyCache.set(label, kp);
 					}
 					return kp;
-				}
-
-				// ── Chat identity & prekeys (X3DH) ─────────────────────────────────
-				// Derive this device's long-term chat identity from the chat root salted
-				// by the device public key, so each device is a distinct ratchet endpoint
-				// yet every key is reproducible from the AMK on the same device.
-				function deriveChatIdentity(devicePubKeyB64) {
-					const devicePub = sodium.from_base64(devicePubKeyB64, b64);
-					const idSeed = sodium.crypto_generichash(32, devicePub, chatRootKey);
-					const dhSeed = sodium.crypto_generichash(32, sodium.from_string('dh'), idSeed);
-					const signSeed = sodium.crypto_generichash(32, sodium.from_string('sign'), idSeed);
-					const identity = sodium.crypto_box_seed_keypair(dhSeed);
-					const signing = sodium.crypto_sign_seed_keypair(signSeed);
-					sodium.memzero(idSeed);
-					sodium.memzero(dhSeed);
-					sodium.memzero(signSeed);
-					return { identity, signing };
-				}
-
-				// Generate a fresh signed prekey + a batch of one-time prekeys. Prekeys are
-				// random (not AMK-derived) — they rotate and are consumed once each. Their
-				// private halves are persisted in the vault partition so an inbound prekey
-				// message can complete X3DH later; only public halves are returned.
-				async function generateChatPrekeys(signingPriv, count) {
-					let counter = (await idbGet('chat-prekey-counter')) || 0;
-
-					const signedKp = sodium.crypto_box_keypair();
-					const signedKeyId = ++counter;
-					const signature = sodium.crypto_sign_detached(signedKp.publicKey, signingPriv);
-
-					const stored = (await idbGet('chat-prekey-privs')) || { signed: {}, oneTime: {} };
-					stored.signed[signedKeyId] = sodium.to_base64(signedKp.privateKey, b64);
-
-					const oneTimePublic = [];
-					for (let i = 0; i < count; i++) {
-						const kp = sodium.crypto_box_keypair();
-						const keyId = ++counter;
-						stored.oneTime[keyId] = sodium.to_base64(kp.privateKey, b64);
-						oneTimePublic.push({ key_id: keyId, public_key: sodium.to_base64(kp.publicKey, b64) });
-					}
-
-					await idbSet('chat-prekey-privs', stored);
-					await idbSet('chat-prekey-counter', counter);
-
-					return {
-						signed_prekey: {
-							key_id: signedKeyId,
-							public_key: sodium.to_base64(signedKp.publicKey, b64),
-							signature: sodium.to_base64(signature, b64)
-						},
-						one_time_prekeys: oneTimePublic
-					};
-				}
-
-				// Build the full publishable bundle for this device.
-				async function initChatIdentity(count) {
-					const kp = await idbGet('devkey');
-					if (!kp) throw new Error('no device key');
-					const { identity, signing } = deriveChatIdentity(kp.pub);
-					const prekeys = await generateChatPrekeys(signing.privateKey, count || 100);
-					return {
-						device_public_key: kp.pub,
-						identity_key: sodium.to_base64(identity.publicKey, b64),
-						signing_key: sodium.to_base64(signing.publicKey, b64),
-						signed_prekey: prekeys.signed_prekey,
-						one_time_prekeys: prekeys.one_time_prekeys
-					};
-				}
-
-				// ── Double Ratchet sessions ────────────────────────────────────────
-				function getRatchet() {
-					if (!ratchet) {
-						if (!window.__createRatchet) throw new Error('ratchet not loaded');
-						ratchet = window.__createRatchet(sodium);
-					}
-					return ratchet;
-				}
-
-				// Seal/open session state under the AMK-derived state key. The app stores
-				// only the sealed blob; it is useless without the AMK.
-				function sealState(state) {
-					const plain = sodium.from_string(JSON.stringify(state));
-					const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
-					const ct = sodium.crypto_secretbox_easy(plain, nonce, chatStateKey);
-					const out = new Uint8Array(nonce.length + ct.length);
-					out.set(nonce, 0);
-					out.set(ct, nonce.length);
-					return sodium.to_base64(out, b64);
-				}
-				function openState(sealedB64) {
-					const raw = sodium.from_base64(sealedB64, b64);
-					const nonce = raw.slice(0, sodium.crypto_secretbox_NONCEBYTES);
-					const ct = raw.slice(sodium.crypto_secretbox_NONCEBYTES);
-					const plain = sodium.crypto_secretbox_open_easy(ct, nonce, chatStateKey);
-					if (!plain) throw new Error('cannot open session state');
-					return JSON.parse(sodium.to_string(plain));
-				}
-
-				async function chatIdentityB64() {
-					const kp = await idbGet('devkey');
-					if (!kp) throw new Error('no device key');
-					const { identity } = deriveChatIdentity(kp.pub);
-					return {
-						priv: sodium.to_base64(identity.privateKey, b64),
-						pub: sodium.to_base64(identity.publicKey, b64)
-					};
-				}
-
-				// Look up a stored prekey private by id and recompute its public key.
-				async function loadPrekeyPriv(kind, keyId) {
-					const stored = (await idbGet('chat-prekey-privs')) || { signed: {}, oneTime: {} };
-					const privB64 = stored[kind] && stored[kind][keyId];
-					if (!privB64) return null;
-					const priv = sodium.from_base64(privB64, b64);
-					const pub = sodium.crypto_scalarmult_base(priv);
-					return { priv: privB64, pub: sodium.to_base64(pub, b64), stored };
-				}
-
-				// Establish (initiator side) and return sealed state + the X3DH header the
-				// caller attaches to its first message.
-				async function chatX3dhInit(bundle) {
-					const id = await chatIdentityB64();
-					const r = getRatchet();
-					const out = r.x3dhInitiator({ identityPriv: id.priv, identityPub: id.pub, bundle });
-					return { sealedState: sealState(out.state), x3dh: out.x3dh };
-				}
-
-				// Establish (responder side) from an inbound prekey message and decrypt it.
-				// The consumed one-time prekey private is dropped so it is never reused.
-				async function chatX3dhAccept(message) {
-					const x3dh = message.header.x3dh;
-					if (!x3dh) throw new Error('not a prekey message');
-					const id = await chatIdentityB64();
-					const signed = await loadPrekeyPriv('signed', x3dh.spk_id);
-					if (!signed) throw new Error('unknown signed prekey');
-					let oneTimePriv;
-					let stored = signed.stored;
-					if (x3dh.otpk_id != null) {
-						const otpk = await loadPrekeyPriv('oneTime', x3dh.otpk_id);
-						if (otpk) {
-							oneTimePriv = otpk.priv;
-							stored = otpk.stored;
-						}
-					}
-					const r = getRatchet();
-					let state = r.x3dhResponder({
-						identityPriv: id.priv,
-						signedPrekeyPub: signed.pub,
-						signedPrekeyPriv: signed.priv,
-						oneTimePrekeyPriv: oneTimePriv,
-						remote: { ik: x3dh.ik, ek: x3dh.ek }
-					});
-					const dec = r.ratchetDecrypt(state, message);
-					if (x3dh.otpk_id != null && stored.oneTime) {
-						delete stored.oneTime[x3dh.otpk_id];
-						await idbSet('chat-prekey-privs', stored);
-					}
-					return { sealedState: sealState(dec.state), plaintext: sodium.to_base64(dec.plaintext, b64) };
-				}
-
-				function chatEncrypt(sealedState, plaintextB64, extra) {
-					const r = getRatchet();
-					const state = openState(sealedState);
-					const out = r.ratchetEncrypt(state, sodium.from_base64(plaintextB64, b64), extra || null);
-					return { sealedState: sealState(out.state), message: out.message };
-				}
-
-				function chatDecrypt(sealedState, message) {
-					const r = getRatchet();
-					const state = openState(sealedState);
-					const out = r.ratchetDecrypt(state, message);
-					return { sealedState: sealState(out.state), plaintext: sodium.to_base64(out.plaintext, b64) };
-				}
-
-				// ── Group (Sender Keys) ────────────────────────────────────────────
-				// Create this device's sender key for a group; return the sealed sender
-				// state and the public distribution to hand to members over 1:1 sessions.
-				function chatGroupCreate() {
-					const r = getRatchet();
-					const state = r.groupSenderCreate();
-					return { sealedState: sealState(state), distribution: r.groupSenderDistribution(state) };
-				}
-
-				function chatGroupEncrypt(sealedState, plaintextB64) {
-					const r = getRatchet();
-					const state = openState(sealedState);
-					const out = r.groupEncrypt(state, sodium.from_base64(plaintextB64, b64));
-					return { sealedState: sealState(out.state), message: out.message };
-				}
-
-				// Store a member's sender key (from their distribution) as sealed receiver state.
-				function chatGroupAccept(distribution) {
-					const r = getRatchet();
-					const state = r.groupReceiverFromDistribution(distribution);
-					return { sealedState: sealState(state) };
-				}
-
-				function chatGroupDecrypt(sealedState, message) {
-					const r = getRatchet();
-					const state = openState(sealedState);
-					const out = r.groupDecrypt(state, message);
-					return { sealedState: sealState(out.state), plaintext: sodium.to_base64(out.plaintext, b64) };
 				}
 
 				// Best-effort: publish the derived public key so senders can seal DEKs
@@ -934,36 +713,6 @@
 					};
 				}
 
-				// Brokered embedding for the collection stores. Returns null (rather than
-				// throwing) whenever the scope is missing or the daemon is unreachable,
-				// so a store that cannot embed degrades to lexical search instead of
-				// failing the write that triggered it.
-				async function embedText(input) {
-					const res = await fetch(DAEMON_URL + '/v1/embed', {
-						method: 'POST',
-						headers: {
-							'Content-Type': 'application/json',
-							Authorization: 'Bearer ' + (accessToken || '')
-						},
-						body: JSON.stringify({ input })
-					});
-					if (!res.ok) throw new Error('daemon_status_' + res.status);
-					return res.json();
-				}
-
-				async function embedOne(text) {
-					if (!grantedScopes.includes('ai:embed')) return null;
-					if (!text) return null;
-					try {
-						const result = await embedText([text]);
-						const vector = result.vectors && result.vectors[0];
-						if (!vector) return null;
-						return { model: result.model, dim: result.dim, vector: vector };
-					} catch (_) {
-						return null;
-					}
-				}
-
 				function collectionStores() {
 					// The stores bind the token holder's id (envelope authorship); without
 					// a verified subject there is nobody to write as.
@@ -975,7 +724,6 @@
 							crypto: collectionCrypto(),
 							getToken: () => accessToken,
 							refreshToken: requestFreshToken,
-							embed: embedOne,
 							emit: (collection, event, detail) =>
 								post(parentOrigin, { type: 'collection-event', collection, event, detail })
 						});
@@ -1043,177 +791,6 @@
 							ready();
 						} else {
 							await postLocked();
-						}
-						return;
-					}
-
-					if (msg.type === 'chat-init-identity') {
-						if (!chatRootKey) {
-							e.source.postMessage({ type: 'result', id: msg.id, ok: false, error: 'locked' }, e.origin);
-							return;
-						}
-						try {
-							const bundle = await initChatIdentity(msg.count);
-							e.source.postMessage({ type: 'result', id: msg.id, ok: true, bundle }, e.origin);
-						} catch (err) {
-							e.source.postMessage(
-								{ type: 'result', id: msg.id, ok: false, error: String(err && err.message) },
-								e.origin
-							);
-						}
-						return;
-					}
-
-					if (msg.type && msg.type.indexOf('chat-') === 0 && msg.type !== 'chat-init-identity') {
-						if (!chatStateKey) {
-							e.source.postMessage({ type: 'result', id: msg.id, ok: false, error: 'locked' }, e.origin);
-							return;
-						}
-						try {
-							let result;
-							if (msg.type === 'chat-x3dh-init') {
-								result = await chatX3dhInit(msg.bundle);
-							} else if (msg.type === 'chat-x3dh-accept') {
-								result = await chatX3dhAccept(msg.message);
-							} else if (msg.type === 'chat-encrypt') {
-								result = chatEncrypt(msg.sealedState, msg.plaintext, msg.x3dh);
-							} else if (msg.type === 'chat-decrypt') {
-								result = chatDecrypt(msg.sealedState, msg.message);
-							} else if (msg.type === 'chat-group-create') {
-								result = chatGroupCreate();
-							} else if (msg.type === 'chat-group-encrypt') {
-								result = chatGroupEncrypt(msg.sealedState, msg.plaintext);
-							} else if (msg.type === 'chat-group-accept') {
-								result = chatGroupAccept(msg.distribution);
-							} else if (msg.type === 'chat-group-decrypt') {
-								result = chatGroupDecrypt(msg.sealedState, msg.message);
-							} else {
-								throw new Error('unknown chat op');
-							}
-							e.source.postMessage({ type: 'result', id: msg.id, ok: true, ...result }, e.origin);
-						} catch (err) {
-							e.source.postMessage(
-								{ type: 'result', id: msg.id, ok: false, error: String(err && err.message) },
-								e.origin
-							);
-						}
-						return;
-					}
-
-					if (msg.type === 'ai-embed') {
-						// Embedding is not a stream and never leaves the machine: the
-						// daemon runs the model locally so encrypted content can be ranked
-						// on device. Gated on the exact scope, like the other ai-* ops.
-						if (!grantedScopes.includes('ai:embed')) {
-							e.source.postMessage({ type: 'result', id: msg.id, ok: false, error: 'scope_not_granted' }, e.origin);
-							return;
-						}
-						try {
-							const result = await embedText(msg.input || []);
-							e.source.postMessage({ type: 'result', id: msg.id, ok: true, ...result }, e.origin);
-						} catch (err) {
-							e.source.postMessage(
-								{ type: 'result', id: msg.id, ok: false, error: String(err && err.message) },
-								e.origin
-							);
-						}
-						return;
-					}
-
-					if (msg.type === 'ai-complete' || msg.type === 'ai-chat') {
-						// AI ops need no AMK — only the granted ai:* scope. Gate on the
-						// exact scope string (not the crypto-label path), then broker the
-						// request to the local daemon and stream deltas back.
-						const scope = msg.type === 'ai-chat' ? 'ai:chat' : 'ai:complete';
-						if (!grantedScopes.includes(scope)) {
-							e.source.postMessage({ type: 'result', id: msg.id, ok: false, error: 'scope_not_granted' }, e.origin);
-							return;
-						}
-						const path = msg.type === 'ai-chat' ? '/v1/chat' : '/v1/complete';
-
-						// Sealed persistence: when the app opts into a session, the prior
-						// history is stored only as an opaque blob sealed under chatStateKey.
-						// The Vault unseals it, prepends it to the new turn for the daemon,
-						// and re-seals the extended history — the app never sees plaintext.
-						const payload = msg.payload || {};
-						const wantsSession = msg.type === 'ai-chat' && payload.persist === true;
-						if (wantsSession && !chatStateKey) {
-							e.source.postMessage({ type: 'result', id: msg.id, ok: false, error: 'locked' }, e.origin);
-							return;
-						}
-						let requestBody = payload;
-						if (wantsSession) {
-							let priorMessages = [];
-							if (payload.session) {
-								try {
-									priorMessages = openState(payload.session);
-								} catch (_) {
-									e.source.postMessage({ type: 'result', id: msg.id, ok: false, error: 'bad_session' }, e.origin);
-									return;
-								}
-							}
-							const incoming = Array.isArray(payload.messages) ? payload.messages : [];
-							requestBody = { model: payload.model, messages: priorMessages.concat(incoming), tools: payload.tools };
-						}
-						try {
-							const res = await fetch(DAEMON_URL + path, {
-								method: 'POST',
-								headers: {
-									'Content-Type': 'application/json',
-									Authorization: 'Bearer ' + (accessToken || '')
-								},
-								body: JSON.stringify(requestBody)
-							});
-							if (!res.ok || !res.body) {
-								e.source.postMessage(
-									{ type: 'result', id: msg.id, ok: false, error: 'daemon_status_' + res.status },
-									e.origin
-								);
-								return;
-							}
-							const reader = res.body.getReader();
-							const decoder = new TextDecoder();
-							let sseBuffer = '';
-							// Reconstruct the assistant turn from the deltas we forward, so a
-							// sealed session can be re-sealed without the daemon echoing history.
-							let assistantText = '';
-							for (;;) {
-								const { value, done } = await reader.read();
-								if (done) break;
-								sseBuffer += decoder.decode(value, { stream: true });
-								let sep;
-								while ((sep = sseBuffer.indexOf('\n\n')) !== -1) {
-									const frame = sseBuffer.slice(0, sep).trim();
-									sseBuffer = sseBuffer.slice(sep + 2);
-									if (!frame.startsWith('data:')) continue;
-									const data = frame.slice(5).trim();
-									if (data === '[DONE]') continue;
-									let parsed;
-									try {
-										parsed = JSON.parse(data);
-									} catch (_) {
-										continue;
-									}
-									if (parsed.delta) {
-										assistantText += parsed.delta;
-										e.source.postMessage({ type: 'ai-chunk', id: msg.id, delta: parsed.delta }, e.origin);
-									} else if (parsed.error) {
-										e.source.postMessage({ type: 'result', id: msg.id, ok: false, error: parsed.error }, e.origin);
-										return;
-									}
-								}
-							}
-							const result = { type: 'result', id: msg.id, ok: true, done: true };
-							if (wantsSession) {
-								const fullHistory = requestBody.messages.concat([{ role: 'assistant', content: assistantText }]);
-								result.session = sealState(fullHistory);
-							}
-							e.source.postMessage(result, e.origin);
-						} catch (err) {
-							e.source.postMessage(
-								{ type: 'result', id: msg.id, ok: false, error: String(err && err.message) },
-								e.origin
-							);
 						}
 						return;
 					}

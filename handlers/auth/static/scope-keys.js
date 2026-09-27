@@ -7,7 +7,7 @@
 // the binding IS the keypair choice, cross-scope decryption is cryptographically
 // impossible — no AAD, no per-object grant table.
 //
-// Environment-agnostic, mirroring chat-ratchet.js: `createScopeKeys(sodium)`
+// Environment-agnostic, like space-keys.js: `createScopeKeys(sodium)`
 // takes a ready libsodium instance. The Vault calls it with its global `sodium`;
 // the test suite imports libsodium-wrappers-sumo and calls it identically, so the
 // shipped code is the code under test. The literal AMK never leaves the caller —

@@ -181,7 +181,7 @@ func main() {
 	// ── Callback endpoints (called by SvelteKit after login/consent) ──────────
 	oauth_handlers.NewCallbackHandler(redis, surreal, issuer).Register(router)
 
-	// Cross-origin crypto sandbox (embedded by client apps like muse).
+	// Cross-origin crypto sandbox (embedded by client apps like contacts).
 	vaulthandler.NewHandler(surreal).Register(router)
 
 	if err := http.ListenAndServe(":"+port, router); err != nil {

@@ -56,7 +56,6 @@ func (handler *SignupHandler) Register(r chi.Router) {
 	r.Get("/auth/static/libsodium.js", handler.serveStatic("libsodium.js"))
 	r.Get("/auth/static/libsodium-wrappers.js", handler.serveStatic("libsodium-wrappers.js"))
 	r.Get("/auth/static/recovery-words.js", handler.serveStatic("recovery-words.js"))
-	r.Get("/auth/static/chat-ratchet.js", handler.serveStatic("chat-ratchet.js"))
 	r.Get("/auth/static/scope-keys.js", handler.serveStatic("scope-keys.js"))
 	r.Get("/auth/static/space-keys.js", handler.serveStatic("space-keys.js"))
 	// Vault-side E2EE collection stores, built from packages/sdk/src/vault.

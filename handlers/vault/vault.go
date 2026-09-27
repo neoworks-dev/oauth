@@ -1,5 +1,5 @@
 // Package vault serves the cross-origin crypto sandbox embedded by client apps
-// (e.g. muse). The page holds the user's AMK and answers encrypt/decrypt over
+// (e.g. contacts). The page holds the user's AMK and answers encrypt/decrypt over
 // postMessage; the AMK never crosses the origin boundary into the embedding app.
 //
 // It embraces browser storage partitioning: the vault keeps ITS OWN device
@@ -55,10 +55,6 @@ func (h *Handler) Register(r chi.Router) {
 
 type vaultData struct {
 	AppName string
-	// DaemonURLJSON is the JSON-quoted origin of the local AI runtime daemon
-	// (neod) the vault brokers ai-* ops to. Derived from the base domain unless
-	// NEOD_URL overrides it.
-	DaemonURLJSON template.JS
 	// APIURLJSON is the JSON-quoted API origin. The vault syncs E2EE collections
 	// (contacts) itself, so the decrypted store never leaves this origin.
 	APIURLJSON template.JS
@@ -70,14 +66,6 @@ func apiURL() string {
 		return v
 	}
 	return config.ServiceURL("api")
-}
-
-// daemonURL is the AI runtime daemon origin the vault fetches for ai-* ops.
-func daemonURL() string {
-	if v := os.Getenv("NEOD_URL"); v != "" {
-		return v
-	}
-	return config.ServiceURL("ai")
 }
 
 // lookupClient resolves the embedding client's registered record. An absent or
@@ -108,14 +96,12 @@ func appNameOf(client *oauth.Client, clientID string) string {
 
 func (h *Handler) serveVault(w http.ResponseWriter, r *http.Request) {
 	clientID := r.URL.Query().Get("client_id")
-	daemonJSON, _ := json.Marshal(daemonURL())
 	apiJSON, _ := json.Marshal(apiURL())
 
 	var buf bytes.Buffer
 	if err := vaultTmpl.Execute(&buf, vaultData{
-		AppName:       appNameOf(h.lookupClient(r.Context(), clientID), clientID),
-		DaemonURLJSON: template.JS(daemonJSON),
-		APIURLJSON:    template.JS(apiJSON),
+		AppName:    appNameOf(h.lookupClient(r.Context(), clientID), clientID),
+		APIURLJSON: template.JS(apiJSON),
 	}); err != nil {
 		http.Error(w, "render error", http.StatusInternalServerError)
 		return
