@@ -64,6 +64,31 @@ export function writableLabels(grantedScopes) {
 	return labelsFor(grantedScopes, WRITE_ACTIONS);
 }
 
+// Raw space ops whose output the server accepts as a write: signed envelopes and
+// freshly sealed or rotated space keys. Everything else only decrypts or verifies.
+const SPACE_WRITE_OPS = new Set([
+	'space-encrypt',
+	'space-encrypt-batch',
+	'space-key-create',
+	'space-key-wrap',
+	'space-key-rotate',
+]);
+
+/**
+ * Whether a raw `space-*` op may run for `collection`, given the caller's
+ * decryptable and writable label sets. Every space op needs the read label; the
+ * ops in SPACE_WRITE_OPS also need the write label.
+ */
+export function spaceOpAllowed(opType, collection, readLabels, writeLabels) {
+	if (!collection || !readLabels.has(collection)) {
+		return false;
+	}
+	if (!SPACE_WRITE_OPS.has(opType)) {
+		return true;
+	}
+	return writeLabels.has(collection);
+}
+
 function labelsFor(grantedScopes, actions) {
 	const labels = new Set();
 	for (const scope of grantedScopes || []) {

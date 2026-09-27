@@ -10,12 +10,13 @@
 		<!-- Double Ratchet engine, shared verbatim with the test suite. -->
 		<script type="module">
 			import { createRatchet } from '/auth/static/chat-ratchet.js';
-			import { createScopeKeys, decryptableLabels, writableLabels } from '/auth/static/scope-keys.js';
+			import { createScopeKeys, decryptableLabels, writableLabels, spaceOpAllowed } from '/auth/static/scope-keys.js';
 			import { createSpaceKeys } from '/auth/static/space-keys.js';
 			window.__createRatchet = createRatchet;
 			window.__createScopeKeys = createScopeKeys;
 			window.__decryptableLabels = decryptableLabels;
 			window.__writableLabels = writableLabels;
+			window.__spaceOpAllowed = spaceOpAllowed;
 			window.__createSpaceKeys = createSpaceKeys;
 		</script>
 		<!-- E2EE collection stores — contacts, calendar, memories (IndexedDB +
@@ -1256,8 +1257,9 @@
 							return;
 						}
 						// Capability gate: the collection is the encryption label. A caller
-						// whose token lacks a read grant for it gets nothing.
-						if (!msg.collection || !allowedLabels.has(msg.collection)) {
+						// whose token lacks a read grant for it gets nothing, and one
+						// without a write grant cannot produce envelopes or space keys.
+						if (!window.__spaceOpAllowed(msg.type, msg.collection, allowedLabels, allowedWriteLabels)) {
 							e.source.postMessage({ type: 'result', id: msg.id, ok: false, error: 'scope_not_granted' }, e.origin);
 							return;
 						}
