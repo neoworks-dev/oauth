@@ -6,6 +6,8 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -14,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/golang-jwt/jwt/v5"
 	googlehandler "github.com/neoworks/oauth/handlers/google"
 	vaulthandler "github.com/neoworks/oauth/handlers/vault"
 	"github.com/neoworks/oauth/internal/app"
@@ -157,4 +160,51 @@ func (system *system) introspect(subject, bearer string) testsupport.Response {
 
 func installRecord(installID string) models.RecordID {
 	return models.NewRecordID("install", installID)
+}
+
+// freshAccount signs up an account with a unique email.
+func (system *system) freshAccount(label string) *testsupport.Account {
+	system.t.Helper()
+	account := testsupport.NewAccount(label + "-" + testsupport.NewAccount("x@example.com").UserID[:8] + "@example.com")
+	system.signUp(account)
+	return account
+}
+
+// issueTokens runs authorize, consent and the code exchange for a read grant on
+// the account's photos root.
+func (system *system) issueTokens(account *testsupport.Account) testsupport.Response {
+	system.t.Helper()
+	install := testsupport.NewInstall()
+	verifier, challenge := pkce()
+	location := system.authorize(system.authorizeParams(install, challenge, "photos:read"))
+	body := consentFor(account, install, system.clientID, challengeID(location), []string{"photos:read"}, map[string]string{"photos": "read"})
+	consent := system.browser.Do("POST", "/vault/consent", body, nil)
+	if consent.Status != 200 {
+		system.t.Fatalf("consent: %d %s", consent.Status, consent.Raw)
+	}
+	redirect, _ := url.Parse(consent.Body["redirect"].(string))
+	issued := system.exchange(redirect.Query().Get("code"), verifier)
+	if issued.Status != 200 {
+		system.t.Fatalf("token: %d %s", issued.Status, issued.Raw)
+	}
+	return issued
+}
+
+func (system *system) getJSON(path string) map[string]any {
+	request := httptest.NewRequest(http.MethodGet, path, nil)
+	recorder := httptest.NewRecorder()
+	system.oauth.ServeHTTP(recorder, request)
+	var body map[string]any
+	_ = json.Unmarshal(recorder.Body.Bytes(), &body)
+	return body
+}
+
+// verifyWithJWK verifies an ES256 token against a public JWK.
+func verifyWithJWK(rawToken string, key map[string]any) (jwt.MapClaims, error) {
+	xBytes, _ := base64.RawURLEncoding.DecodeString(key["x"].(string))
+	yBytes, _ := base64.RawURLEncoding.DecodeString(key["y"].(string))
+	publicKey := &ecdsa.PublicKey{Curve: elliptic.P256(), X: new(big.Int).SetBytes(xBytes), Y: new(big.Int).SetBytes(yBytes)}
+	claims := jwt.MapClaims{}
+	_, err := jwt.ParseWithClaims(rawToken, claims, func(*jwt.Token) (any, error) { return publicKey, nil }, jwt.WithValidMethods([]string{"ES256"}))
+	return claims, err
 }

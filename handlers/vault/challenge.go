@@ -75,3 +75,32 @@ func redirectWithCode(redirectURI, code, state string) (string, error) {
 	target.RawQuery = values.Encode()
 	return target.String(), nil
 }
+
+// handleDeny ends an authorization request the user refused, answering with the
+// redirect that reports access_denied to the client.
+func (server *Server) handleDeny(response http.ResponseWriter, request *http.Request) {
+	var body struct {
+		LoginChallenge string `json:"loginChallenge"`
+	}
+	if err := readJSON(request, &body); err != nil {
+		writeError(response, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	challenge, err := server.state.TakeLoginChallenge(request.Context(), body.LoginChallenge)
+	if err != nil {
+		writeError(response, http.StatusNotFound, "challenge_not_found")
+		return
+	}
+	target, err := url.Parse(challenge.RedirectURI)
+	if err != nil {
+		writeError(response, http.StatusInternalServerError, "server_error")
+		return
+	}
+	values := target.Query()
+	values.Set("error", "access_denied")
+	if challenge.State != "" {
+		values.Set("state", challenge.State)
+	}
+	target.RawQuery = values.Encode()
+	writeJSON(response, http.StatusOK, map[string]string{"redirect": target.String()})
+}

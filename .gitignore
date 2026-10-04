@@ -7,3 +7,7 @@
 
 # JS test dependencies
 node_modules/
+
+# Playwright output
+test-results/
+playwright-report/

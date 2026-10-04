@@ -1,6 +1,7 @@
-// Maps each byte (0-255) to a word, so the recovery key can be
-// written down or read aloud instead of copying a base64 blob.
-var RECOVERY_WORDLIST = [
+// Recovery key words: every byte of the 32 byte recovery entropy maps to one of
+// 256 words, so the key can be written down or read aloud.
+
+const RECOVERY_WORDLIST = [
 "airport", "alligator", "almond", "amber", "anchor", "antelope", "apple", "archery",
 "attic", "avalanche", "badger", "baker", "bakery", "balcony", "banana", "basket",
 "bear", "beaver", "bedroom", "beetle", "biscuit", "blanket", "blizzard", "bottle",
@@ -35,63 +36,40 @@ var RECOVERY_WORDLIST = [
 "windmill", "window", "wolf", "woodpecker", "wrench", "writer", "zebra", "zipper",
 ];
 
-function concatBytes(a, b) {
-  var out = new Uint8Array(a.length + b.length);
-  out.set(a, 0);
-  out.set(b, a.length);
-  return out;
+export function bytesToWords(bytes) {
+  return Array.from(bytes, (byte) => RECOVERY_WORDLIST[byte]);
 }
 
-function bytesToWords(bytes) {
-  var words = [];
-  for (var i = 0; i < bytes.length; i++) {
-    words.push(RECOVERY_WORDLIST[bytes[i]]);
-  }
-  return words;
-}
-
-// Inverse of bytesToWords. Throws if a word isn't in the wordlist.
-function wordsToBytes(words) {
-  var bytes = new Uint8Array(words.length);
-  for (var i = 0; i < words.length; i++) {
-    var index = RECOVERY_WORDLIST.indexOf(words[i].toLowerCase());
+// wordsToBytes is the inverse of bytesToWords. It throws on an unknown word.
+export function wordsToBytes(words) {
+  const bytes = new Uint8Array(words.length);
+  words.forEach((word, position) => {
+    const index = RECOVERY_WORDLIST.indexOf(word.trim().toLowerCase());
     if (index === -1) {
-      throw new Error("Unknown recovery word: " + words[i]);
+      throw new Error("Unknown recovery word: " + word);
     }
-    bytes[i] = index;
-  }
+    bytes[position] = index;
+  });
   return bytes;
 }
 
-function renderRecoveryWords(container, words) {
-  container.innerHTML = "";
-  for (var i = 0; i < words.length; i++) {
-    var item = document.createElement("div");
-    var index = document.createElement("span");
-    index.className = "word-index";
-    index.textContent = (i + 1) + ".";
-    item.appendChild(index);
-    item.appendChild(document.createTextNode(words[i]));
-    container.appendChild(item);
-  }
+// parseRecoveryWords accepts the words separated by spaces, commas or lines.
+export function parseRecoveryWords(text) {
+  const words = text.split(/[\s,]+/).filter((word) => word.length > 0);
+  return wordsToBytes(words);
 }
 
-function downloadRecoveryKey(words) {
-  var lines = words.map(function (word, i) {
-    return (i + 1) + ". " + word;
-  });
-  var content =
-    "NeoWorks recovery key\n" +
-    "Keep this safe — it's the only way to recover your account if you forget your password.\n\n" +
-    lines.join("\n") +
-    "\n";
-  var blob = new Blob([content], { type: "text/plain" });
-  var url = URL.createObjectURL(blob);
-  var link = document.createElement("a");
-  link.href = url;
-  link.download = "neoworks-recovery-key.txt";
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
+export function downloadRecoveryKey(words) {
+  const lines = words.map((word, position) => (position + 1) + ". " + word);
+  const content = "Neoworks recovery key\n" +
+    "Keep this safe. It is the only way to recover your account if you forget your password.\n\n" +
+    lines.join("\n") + "\n";
+  const url = URL.createObjectURL(new Blob([content], { type: "text/plain" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = "neoworks-recovery-key.txt";
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
   URL.revokeObjectURL(url);
 }

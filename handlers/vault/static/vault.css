@@ -1,0 +1,59 @@
+/* Vault-specific additions to the shared neoworks.css. No inline styles are
+   allowed by the page's CSP, so every adjustment lives here. */
+
+#view > * + * {
+  margin-top: 12px;
+}
+
+.account-section {
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+
+.account-section h2 {
+  margin-bottom: 8px;
+}
+
+.choice-row {
+  align-items: flex-start;
+}
+
+.choice {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.collection-picker {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+}
+
+.collection-picker legend {
+  padding: 0 6px;
+  color: var(--text-muted);
+}
+
+.tree-depth-1 { padding-left: 16px; }
+.tree-depth-2 { padding-left: 32px; }
+.tree-depth-3 { padding-left: 48px; }
+.tree-depth-4 { padding-left: 64px; }
+
+.handover {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.handover-qr {
+  background: #ffffff;
+  padding: 8px;
+  border-radius: var(--radius-md);
+}
+
+textarea {
+  width: 100%;
+}

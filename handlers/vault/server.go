@@ -126,6 +126,7 @@ func (server *Server) registerAuthenticated(api chi.Router) {
 	api.Post("/token", server.handleToken)
 	api.Get("/tree", server.handleTree)
 	api.Post("/consent", server.handleConsent)
+	api.Post("/deny", server.handleDeny)
 	api.Post("/password", server.handleChangePassword)
 	api.Post("/rotate", server.handleRotate)
 	api.Post("/handover", server.handleHandoverCreate)

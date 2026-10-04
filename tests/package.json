@@ -2,9 +2,13 @@
   "name": "oauth-tests",
   "private": true,
   "scripts": {
-    "test": "bun test"
+    "test": "bun test",
+    "e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0"
   },
   "dependencies": {
-    "jose": "^5.10.0"
+    "libsodium-wrappers-sumo": "^0.8.4"
   }
 }
