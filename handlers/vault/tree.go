@@ -8,6 +8,8 @@ import (
 
 type treeNodeView struct {
 	ID         string         `json:"id"`
+	OwnerID    string         `json:"ownerId"`
+	OwnerEmail string         `json:"ownerEmail,omitempty"`
 	ParentID   *string        `json:"parentId"`
 	Collection string         `json:"collection"`
 	Kind       string         `json:"kind"`
@@ -28,12 +30,13 @@ type logHeadView struct {
 	EntryHash string `json:"entryHash"`
 }
 
-// handleTree returns the user's root and container nodes, the owner grants
+// handleTree returns the user's root and container nodes and those shared with
+// them, the user's grants
 // that unlock the roots and each node's access log head, which is what the
 // consent screen needs to offer narrower selections and sign install grants.
 func (server *Server) handleTree(response http.ResponseWriter, request *http.Request) {
 	userID := sessionFrom(request).Session.UserID
-	nodes, err := server.store.ListStructure(request.Context(), userID)
+	nodes, err := server.treeNodes(request, userID)
 	if err != nil {
 		writeError(response, http.StatusInternalServerError, "server_error")
 		return
@@ -49,10 +52,24 @@ func (server *Server) handleTree(response http.ResponseWriter, request *http.Req
 		return
 	}
 	writeJSON(response, http.StatusOK, map[string]any{
-		"nodes":  treeNodeViews(nodes),
+		"nodes":  server.treeNodeViews(request, userID, nodes),
 		"grants": ownerGrantViews(grants),
 		"heads":  logHeadViews(heads),
 	})
+}
+
+// treeNodes is the user's own structure followed by the structure other people
+// shared with them.
+func (server *Server) treeNodes(request *http.Request, userID string) ([]store.Node, error) {
+	own, err := server.store.ListStructure(request.Context(), userID)
+	if err != nil {
+		return nil, err
+	}
+	shared, err := server.store.ListSharedStructure(request.Context(), userID)
+	if err != nil {
+		return nil, err
+	}
+	return append(own, shared...), nil
 }
 
 func nodeIDsOf(nodes []store.Node) []string {
@@ -71,16 +88,36 @@ func logHeadViews(heads map[string]store.LogHead) map[string]logHeadView {
 	return views
 }
 
-func treeNodeViews(nodes []store.Node) []treeNodeView {
+func (server *Server) treeNodeViews(request *http.Request, userID string, nodes []store.Node) []treeNodeView {
+	ownerEmails := server.ownerEmails(request, userID, nodes)
 	views := make([]treeNodeView, 0, len(nodes))
 	for _, node := range nodes {
-		views = append(views, treeNodeViewOf(node))
+		view := treeNodeViewOf(node)
+		view.OwnerEmail = ownerEmails[node.OwnerID]
+		views = append(views, view)
 	}
 	return views
 }
 
+// ownerEmails names the people who own the shared nodes, so the consent screen
+// can say whose calendar or contacts are being passed on.
+func (server *Server) ownerEmails(request *http.Request, userID string, nodes []store.Node) map[string]string {
+	emails := map[string]string{}
+	for _, node := range nodes {
+		_, known := emails[node.OwnerID]
+		if node.OwnerID == userID || known {
+			continue
+		}
+		owner, err := server.store.GetUserByID(request.Context(), node.OwnerID)
+		if err == nil {
+			emails[node.OwnerID] = owner.Email
+		}
+	}
+	return emails
+}
+
 func treeNodeViewOf(node store.Node) treeNodeView {
-	view := treeNodeView{ID: node.ID, Collection: node.Collection, Kind: node.Kind, Epoch: node.Epoch}
+	view := treeNodeView{ID: node.ID, OwnerID: node.OwnerID, Collection: node.Collection, Kind: node.Kind, Epoch: node.Epoch}
 	if node.ParentID != "" {
 		parentID := node.ParentID
 		view.ParentID = &parentID

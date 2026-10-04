@@ -12,7 +12,7 @@ var Collections = []string{"calendar", "contacts", "photos", "files", "google"}
 
 var identityScopes = []string{"openid", "profile", "email"}
 
-// IsKnown reports whether a scope is an identity scope or <collection>:read|write.
+// IsKnown reports whether a scope is an identity scope or <collection>:read|write|share.
 func IsKnown(scope string) bool {
 	if slices.Contains(identityScopes, scope) {
 		return true
@@ -21,7 +21,7 @@ func IsKnown(scope string) bool {
 	if !found {
 		return false
 	}
-	if action != "read" && action != "write" {
+	if action != "read" && action != "write" && action != "share" {
 		return false
 	}
 	return slices.Contains(Collections, collection)
@@ -53,7 +53,7 @@ func CollectionRoles(requested []string) map[string]string {
 	roles := map[string]string{}
 	for _, scope := range requested {
 		collection, action, found := strings.Cut(scope, ":")
-		if !found || !slices.Contains(Collections, collection) {
+		if !found || !slices.Contains(Collections, collection) || action == "share" {
 			continue
 		}
 		if action == "write" || roles[collection] == "" {
@@ -61,6 +61,31 @@ func CollectionRoles(requested []string) map[string]string {
 		}
 	}
 	return roles
+}
+
+// ShareCollections lists the collections whose `<collection>:share` scope is
+// requested, which lets the app share them with other people.
+func ShareCollections(requested []string) []string {
+	shared := []string{}
+	for _, scope := range requested {
+		collection, action, found := strings.Cut(scope, ":")
+		if found && action == "share" && slices.Contains(Collections, collection) {
+			shared = append(shared, collection)
+		}
+	}
+	return shared
+}
+
+// SharesWithinRoles reports whether every share scope names a collection that
+// also has a read or write scope, since sharing needs access to share.
+func SharesWithinRoles(requested []string) bool {
+	roles := CollectionRoles(requested)
+	for _, collection := range ShareCollections(requested) {
+		if roles[collection] == "" {
+			return false
+		}
+	}
+	return true
 }
 
 // WantsCollections reports whether any scope grants access to a collection.

@@ -20,12 +20,25 @@ export function collectionOf(scope) {
   return null;
 }
 
+export function isShareScope(scope) {
+  return scope.endsWith(":share") && collectionOf(scope) !== null;
+}
+
+// shareCollections lists the collections an app asks to share with other people.
+export function shareCollections(scopes) {
+  return scopes.filter(isShareScope).map(collectionOf);
+}
+
+export function describeShare(collection) {
+  return "Share your " + COLLECTION_LABELS[collection] + " with other people";
+}
+
 // collectionRoles maps each requested collection to the highest role requested.
 export function collectionRoles(scopes) {
   const roles = {};
   for (const scope of scopes) {
     const collection = collectionOf(scope);
-    if (collection === null) {
+    if (collection === null || isShareScope(scope)) {
       continue;
     }
     if (scope.endsWith(":write") || roles[collection] === undefined) {
@@ -39,6 +52,9 @@ export function describeScope(scope) {
   const collection = collectionOf(scope);
   if (collection === null) {
     return IDENTITY_TEXT[scope];
+  }
+  if (isShareScope(scope)) {
+    return describeShare(collection);
   }
   if (collection === "google") {
     return "Access your linked Google account";

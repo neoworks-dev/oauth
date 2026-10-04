@@ -20,7 +20,7 @@ var errLogHeadMoved = errors.New("access log head moved")
 const (
 	authCodeTTL         = 5 * time.Minute
 	certificateSkew     = 10 * time.Minute
-	certificateMaxLife  = 400 * 24 * time.Hour
+	certificateMaxLife  = 31 * 24 * time.Hour
 	maxGrantsPerConsent = 500
 )
 
@@ -86,6 +86,10 @@ func (server *Server) consentContextFor(response http.ResponseWriter, request *h
 	}
 	if !scopes.Subset(challenge.Scopes, body.Scopes) {
 		writeError(response, http.StatusBadRequest, "scope_not_requested")
+		return consentContext{}, false
+	}
+	if !scopes.SharesWithinRoles(body.Scopes) {
+		writeError(response, http.StatusBadRequest, "share_without_access")
 		return consentContext{}, false
 	}
 	if challenge.Install == nil && scopes.WantsCollections(body.Scopes) {
@@ -246,7 +250,11 @@ func (server *Server) verifiedInstallGrants(request *http.Request, consent conse
 		if !found || seenNodes[grant.NodeID] {
 			return nil, errInvalidPayload
 		}
-		storedGrant, err := checkInstallGrant(consent, certificate, roles, node, grant)
+		heldRole, err := server.heldRole(request, consent.userID, node)
+		if err != nil {
+			return nil, err
+		}
+		storedGrant, err := checkInstallGrant(consent, certificate, roles, heldRole, node, grant)
 		if err != nil {
 			return nil, err
 		}
@@ -309,7 +317,21 @@ func (server *Server) grantedNodes(request *http.Request, grants []grantPayload)
 	return byID, nil
 }
 
-func checkInstallGrant(consent consentContext, certificate *certificateDocument, roles map[string]string, node store.NodeOwnership, grant grantPayload) (store.AccessGrant, error) {
+// heldRole is the role the user holds on a node: write on their own, otherwise
+// the highest whole-node grant other people made them, which is empty when
+// there is none.
+func (server *Server) heldRole(request *http.Request, userID string, node store.NodeOwnership) (string, error) {
+	if node.OwnerID == userID {
+		return "write", nil
+	}
+	return server.store.WholeNodeRole(request.Context(), userID, node)
+}
+
+// checkInstallGrant requires the grant to be the user's own signed grant to the
+// requesting install, capped by the approved scope and by the role the user
+// holds on the node, so a user passes a share on to their own app but never
+// beyond what they were given.
+func checkInstallGrant(consent consentContext, certificate *certificateDocument, roles map[string]string, heldRole string, node store.NodeOwnership, grant grantPayload) (store.AccessGrant, error) {
 	install := consent.challenge.Install
 	targetsInstall := grant.PrincipalType == "install" && grant.PrincipalID == install.ID
 	grantedByUser := grant.GrantedByType == "user" && grant.GrantedByID == consent.userID
@@ -317,7 +339,7 @@ func checkInstallGrant(consent consentContext, certificate *certificateDocument,
 	if !targetsInstall || !grantedByUser || !certified {
 		return store.AccessGrant{}, errInvalidPayload
 	}
-	if node.OwnerID != consent.userID || node.Epoch != grant.Epoch || !roleAllowed(roles[node.Collection], grant.Role) {
+	if node.Epoch != grant.Epoch || !roleAllowed(roles[node.Collection], grant.Role) || !roleAllowed(heldRole, grant.Role) {
 		return store.AccessGrant{}, errInvalidPayload
 	}
 	return verifiedGrantEntry(grant, consent.signPub, consent.now)

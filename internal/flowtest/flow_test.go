@@ -15,7 +15,7 @@ func consentFor(account *testsupport.Account, install testsupport.Install, clien
 	certificate := account.Certificate(testsupport.CertificateParams{
 		InstallID: install.ID, ClientID: clientID,
 		InstallEncPub: wire.EncodeBase64URL(install.EncPub[:]), InstallSignPub: wire.EncodeBase64URL(install.SignPub),
-		Scopes: grantScopes, IssuedAt: time.Now(), ExpiresAt: time.Now().Add(90 * 24 * time.Hour),
+		Scopes: grantScopes, IssuedAt: time.Now(), ExpiresAt: time.Now().Add(30 * 24 * time.Hour),
 	})
 	grants := []map[string]any{}
 	for collection, role := range roles {

@@ -68,7 +68,7 @@ describe("consent tree", () => {
   test("describes collections with readable names and depth", () => {
     const owned = ownerTree();
     const index = tree.buildKeyIndex(owned.tree, owned.identity);
-    const described = tree.describeCollections(owned.tree, index);
+    const described = tree.describeCollections(owned.tree, index, "user-1");
     expect(Object.keys(described).sort()).toEqual(["calendar", "contacts", "files", "google", "photos"]);
     expect(described.calendar.root.name).toBe("Calendar");
     expect(described.calendar.containers.map((entry: any) => [entry.name, entry.depth])).toEqual([["Work", 1], ["Projects", 2]]);
@@ -83,11 +83,11 @@ describe("consent tree", () => {
   test("whole-collection selection grants the root only", () => {
     const owned = ownerTree();
     const index = tree.buildKeyIndex(owned.tree, owned.identity);
-    const collectionTrees = tree.describeCollections(owned.tree, index);
+    const collectionTrees = tree.describeCollections(owned.tree, index, "user-1");
     const install = { id: "install-1", encPub: primitives.encodeBase64Url(primitives.boxKeypair().publicKey) };
     const grants = tree.buildInstallGrants({
       selections: { calendar: { whole: true, nodeIds: new Set() } }, collectionTrees, roles: { calendar: "write" },
-      index, heads: {}, install, granter: { userId: "user-1", signSec: owned.identity.signSec }, certId: "cert-1",
+      index, held: tree.heldRoles(owned.tree, index), userId: "user-1", heads: {}, install, granter: { userId: "user-1", signSec: owned.identity.signSec }, certId: "cert-1",
     });
     expect(grants.length).toBe(1);
     expect(grants[0].nodeId).toBe(owned.calendarRoot.id);
@@ -99,12 +99,13 @@ describe("consent tree", () => {
   test("install grants extend each node's access log head", () => {
     const owned = ownerTree();
     const index = tree.buildKeyIndex(owned.tree, owned.identity);
-    const collectionTrees = tree.describeCollections(owned.tree, index);
+    const collectionTrees = tree.describeCollections(owned.tree, index, "user-1");
     const install = { id: "install-1", encPub: primitives.encodeBase64Url(primitives.boxKeypair().publicKey) };
     const headHash = primitives.encodeBase64Url(primitives.randomBytes(32));
     const grants = tree.buildInstallGrants({
       selections: { calendar: { whole: true, nodeIds: new Set() } }, collectionTrees, roles: { calendar: "read" },
-      index, heads: { [owned.calendarRoot.id]: { index: 0, entryHash: headHash } }, install,
+      index, held: tree.heldRoles(owned.tree, index), userId: "user-1",
+      heads: { [owned.calendarRoot.id]: { index: 0, entryHash: headHash } }, install,
       granter: { userId: "user-1", signSec: owned.identity.signSec }, certId: "cert-1",
     });
     expect(grants[0].logIndex).toBe(1);
@@ -114,14 +115,69 @@ describe("consent tree", () => {
   test("narrowed selection grants only the chosen containers", () => {
     const owned = ownerTree();
     const index = tree.buildKeyIndex(owned.tree, owned.identity);
-    const collectionTrees = tree.describeCollections(owned.tree, index);
+    const collectionTrees = tree.describeCollections(owned.tree, index, "user-1");
     const install = { id: "install-1", encPub: primitives.encodeBase64Url(primitives.boxKeypair().publicKey) };
     const grants = tree.buildInstallGrants({
       selections: { calendar: { whole: false, nodeIds: new Set([owned.work.node.id]) } }, collectionTrees,
-      roles: { calendar: "read" }, index, heads: {}, install,
+      roles: { calendar: "read" }, index, held: tree.heldRoles(owned.tree, index), userId: "user-1", heads: {}, install,
       granter: { userId: "user-1", signSec: owned.identity.signSec }, certId: "cert-1",
     });
     expect(grants.map((grant: any) => grant.nodeId)).toEqual([owned.work.node.id]);
+  });
+});
+
+// sharedWithUser adds a root another person owns, sealed to the user with the
+// given role, to the owner's tree.
+function sharedWithUser(owned: any, role: string) {
+  const friend = account.createIdentity();
+  const { node, nodeKey } = nodes.createRootNode({ userId: "friend-1", collection: "calendar", identity: friend });
+  node.ownerEmail = "friend@example.com";
+  const grant = nodes.createGrant({
+    nodeId: node.id, nodeKey, epoch: 1, role, principalType: "user", principalId: "user-1",
+    principalEncPub: owned.identity.encPub, granter: { userId: "friend-1", signSec: friend.signSec }, position: nodes.nextLogPosition(null),
+  });
+  owned.tree.nodes.push(node);
+  owned.tree.grants.push({ nodeId: node.id, role, epoch: 1, wrappedKeys: grant.wrappedKeys });
+  return node;
+}
+
+describe("nodes shared with the user", () => {
+  test("lists shared entry points apart from the user's own roots", () => {
+    const owned = ownerTree();
+    const sharedRoot = sharedWithUser(owned, "read");
+    const index = tree.buildKeyIndex(owned.tree, owned.identity);
+    const described = tree.describeCollections(owned.tree, index, "user-1");
+    expect(described.calendar.root.id).toBe(owned.calendarRoot.id);
+    const shared = tree.describeSharedNodes(owned.tree, index, "user-1");
+    expect(shared.calendar.map((entry: any) => [entry.id, entry.ownerEmail])).toEqual([[sharedRoot.id, "friend@example.com"]]);
+  });
+
+  test("a read share is passed to the install as read even when the scope allows write", () => {
+    const owned = ownerTree();
+    const sharedRoot = sharedWithUser(owned, "read");
+    const index = tree.buildKeyIndex(owned.tree, owned.identity);
+    const collectionTrees = tree.describeCollections(owned.tree, index, "user-1");
+    const install = { id: "install-1", encPub: primitives.encodeBase64Url(primitives.boxKeypair().publicKey) };
+    const grants = tree.buildInstallGrants({
+      selections: { calendar: { whole: false, nodeIds: new Set([sharedRoot.id]) } }, collectionTrees,
+      roles: { calendar: "write" }, index, held: tree.heldRoles(owned.tree, index), userId: "user-1", heads: {}, install,
+      granter: { userId: "user-1", signSec: owned.identity.signSec }, certId: "cert-1",
+    });
+    expect(grants.map((grant: any) => [grant.nodeId, grant.role])).toEqual([[sharedRoot.id, "read"]]);
+  });
+
+  test("a write share keeps the write role the scope allows", () => {
+    const owned = ownerTree();
+    const sharedRoot = sharedWithUser(owned, "write");
+    const index = tree.buildKeyIndex(owned.tree, owned.identity);
+    const collectionTrees = tree.describeCollections(owned.tree, index, "user-1");
+    const install = { id: "install-1", encPub: primitives.encodeBase64Url(primitives.boxKeypair().publicKey) };
+    const grants = tree.buildInstallGrants({
+      selections: { calendar: { whole: false, nodeIds: new Set([sharedRoot.id]) } }, collectionTrees,
+      roles: { calendar: "write" }, index, held: tree.heldRoles(owned.tree, index), userId: "user-1", heads: {}, install,
+      granter: { userId: "user-1", signSec: owned.identity.signSec }, certId: "cert-1",
+    });
+    expect(grants[0].role).toBe("write");
   });
 });
 

@@ -34,8 +34,10 @@ type Store interface {
 	GetInstall(ctx context.Context, installID string) (*store.Install, error)
 	SaveInstallConsent(ctx context.Context, consent store.InstallConsent) error
 	ListStructure(ctx context.Context, userID string) ([]store.Node, error)
+	ListSharedStructure(ctx context.Context, userID string) ([]store.Node, error)
 	ListOwnerGrants(ctx context.Context, userID string) ([]store.AccessGrant, error)
 	GetNodeOwnerships(ctx context.Context, nodeIDs []string) ([]store.NodeOwnership, error)
+	WholeNodeRole(ctx context.Context, userID string, node store.NodeOwnership) (string, error)
 	ListLogHeads(ctx context.Context, nodeIDs []string) (map[string]store.LogHead, error)
 }
 

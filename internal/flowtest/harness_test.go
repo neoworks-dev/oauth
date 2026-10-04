@@ -90,6 +90,7 @@ func allScopes() []string {
 		"openid", "profile", "email",
 		"calendar:read", "calendar:write", "contacts:read", "contacts:write",
 		"photos:read", "photos:write", "files:read", "files:write",
+		"calendar:share", "contacts:share",
 	}
 }
 

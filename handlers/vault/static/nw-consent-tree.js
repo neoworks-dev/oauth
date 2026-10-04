@@ -22,7 +22,7 @@ function openRootKeys(tree, identity) {
   const nodesById = new Map(tree.nodes.map((node) => [node.id, node]));
   for (const grant of tree.grants) {
     const node = nodesById.get(grant.nodeId);
-    if (!node || node.kind !== "root") {
+    if (!node) {
       continue;
     }
     const key = sealOpen(identity.encPub, identity.encSec, decodeBase64Url(grant.wrappedKeys));
@@ -67,10 +67,10 @@ export function buildKeyIndex(tree, identity) {
 
 // describeCollections lists, per collection, its root and its containers with
 // readable names and nesting depth.
-export function describeCollections(tree, index) {
+export function describeCollections(tree, index, userId) {
   const described = {};
   for (const collection of ROOT_COLLECTIONS) {
-    const root = tree.nodes.find((node) => node.kind === "root" && node.collection === collection);
+    const root = tree.nodes.find((node) => node.kind === "root" && node.collection === collection && node.ownerId === userId);
     if (root && index.has(root.id)) {
       described[collection] = { root: describeNode(index, root, 0), containers: describeContainers(tree, index, root) };
     }
@@ -80,7 +80,7 @@ export function describeCollections(tree, index) {
 
 function describeNode(index, node, depth) {
   const entry = index.get(node.id);
-  return { id: node.id, name: readName(node, entry.key), depth, collection: node.collection };
+  return { id: node.id, name: readName(node, entry.key), depth, collection: node.collection, ownerEmail: node.ownerEmail };
 }
 
 function describeContainers(tree, index, root) {
@@ -111,6 +111,54 @@ function collectDescendants(index, children, parentId, depth, ordered) {
   }
 }
 
+// describeSharedNodes lists, per collection, the nodes other people shared with
+// the user whose keys the user holds: each entry point and the containers below.
+export function describeSharedNodes(tree, index, userId) {
+  const children = new Map();
+  const entries = [];
+  for (const node of tree.nodes) {
+    if (node.ownerId === userId || !index.has(node.id)) {
+      continue;
+    }
+    if (index.has(node.parentId)) {
+      children.set(node.parentId, [...childrenOf(children, node.parentId), node]);
+    } else {
+      entries.push(node);
+    }
+  }
+  const described = new Map();
+  for (const entry of entries) {
+    const ordered = [describeNode(index, entry, 0)];
+    collectDescendants(index, children, entry.id, 1, ordered);
+    described.set(entry.collection, [...childrenOf(described, entry.collection), ...ordered]);
+  }
+  return Object.fromEntries(described);
+}
+
+// heldRoles maps every shared node the user can open to the highest role the
+// user's grants give on it, inherited from the nearest granted ancestor.
+export function heldRoles(tree, index) {
+  const grantRoles = new Map(tree.grants.map((grant) => [grant.nodeId, grant.role]));
+  const roles = new Map();
+  for (const [nodeId] of index) {
+    roles.set(nodeId, inheritedRole(index, grantRoles, nodeId));
+  }
+  return roles;
+}
+
+function inheritedRole(index, grantRoles, nodeId) {
+  let best = null;
+  let current = nodeId;
+  while (current && index.has(current)) {
+    const role = grantRoles.get(current);
+    if (role === "write" || (role !== undefined && best === null)) {
+      best = role;
+    }
+    current = index.get(current).node.parentId;
+  }
+  return best;
+}
+
 // selectedNodeIds turns a collection's selection into the node ids to grant.
 // Choosing the whole collection selects its root, which covers the subtree.
 export function selectedNodeIds(collectionTree, selection) {
@@ -122,17 +170,26 @@ export function selectedNodeIds(collectionTree, selection) {
 
 // buildInstallGrants creates one signed install grant per selected node, each
 // extending that node's access log head.
-export function buildInstallGrants({ selections, collectionTrees, roles, index, heads, install, granter, certId }) {
+export function buildInstallGrants({ selections, collectionTrees, roles, held, userId, index, heads, install, granter, certId }) {
   const grants = [];
   for (const [collection, selection] of Object.entries(selections)) {
     for (const nodeId of selectedNodeIds(collectionTrees[collection], selection)) {
       const entry = index.get(nodeId);
       grants.push(createGrant({
-        nodeId, nodeKey: entry.key, epoch: entry.node.epoch, role: roles[collection],
+        nodeId, nodeKey: entry.key, epoch: entry.node.epoch, role: grantRole(roles[collection], entry.node, held.get(nodeId), userId),
         principalType: "install", principalId: install.id, principalEncPub: decodeBase64Url(install.encPub),
         granter, certId, position: nextLogPosition(heads[nodeId]),
       }));
     }
   }
   return grants;
+}
+
+// grantRole caps the requested role at the role the user holds on a node they
+// don't own, so a user passes a share on to their own app but never beyond it.
+function grantRole(requestedRole, node, heldRole, userId) {
+  if (node.ownerId === userId || heldRole === "write") {
+    return requestedRole;
+  }
+  return "read";
 }
