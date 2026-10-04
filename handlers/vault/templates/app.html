@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Neoworks account</title>
+    <link rel="icon" href="/static/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/static/neoworks.css" />
+    <link rel="stylesheet" href="/static/vault/vault.css" />
+  </head>
+  <body>
+    <main id="app" class="card" data-boot="{{.Boot}}">
+      <div class="logo">
+        <svg width="20" height="20" viewBox="0 0 100 100" fill="none" aria-hidden="true">
+          <circle cx="50" cy="50" r="40" stroke="currentColor" stroke-width="7" />
+          <path d="M 81 27 C 73 51, 55 69, 26 74" stroke="currentColor" stroke-width="7" stroke-linecap="round" />
+        </svg>
+        <span>Neoworks</span>
+      </div>
+      <noscript>
+        <h1>JavaScript required</h1>
+        <p class="hint">
+          Your encryption keys are created and used in this browser, so the
+          account vault cannot run without JavaScript.
+        </p>
+      </noscript>
+    </main>
+    <script src="/static/vault/libsodium.js"></script>
+    <script src="/static/vault/libsodium-wrappers.js"></script>
+    <script type="module" src="/static/vault/app.js"></script>
+  </body>
+</html>

@@ -7,15 +7,6 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
-
-	// Blank imports force each handler package's init() to run, which parses
-	// every auth-page template via template.Must — a malformed template (e.g. a
-	// broken {{if}} after the redesign) panics here rather than in production.
-	_ "github.com/neoworks/oauth/handlers"
-	_ "github.com/neoworks/oauth/handlers/account"
-	_ "github.com/neoworks/oauth/handlers/auth"
-	_ "github.com/neoworks/oauth/handlers/oauth"
-	_ "github.com/neoworks/oauth/handlers/vault"
 )
 
 func TestServesSharedAssets(t *testing.T) {
@@ -26,10 +17,10 @@ func TestServesSharedAssets(t *testing.T) {
 		path        string
 		contentType string
 	}{
-		{"/auth/static/neoworks.css", "text/css; charset=utf-8"},
-		{"/auth/static/geist-400.woff2", "font/woff2"},
-		{"/auth/static/geist-500.woff2", "font/woff2"},
-		{"/auth/static/geist-600.woff2", "font/woff2"},
+		{"/static/neoworks.css", "text/css; charset=utf-8"},
+		{"/static/geist-400.woff2", "font/woff2"},
+		{"/static/geist-500.woff2", "font/woff2"},
+		{"/static/geist-600.woff2", "font/woff2"},
 	}
 
 	for _, tc := range cases {

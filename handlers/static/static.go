@@ -23,11 +23,11 @@ func NewHandler() *Handler {
 }
 
 func (h *Handler) Register(r chi.Router) {
-	r.Get("/auth/static/neoworks.css", h.serve("assets/neoworks.css", "text/css; charset=utf-8"))
-	r.Get("/auth/static/icon.svg", h.serve("assets/icon.svg", "image/svg+xml"))
-	r.Get("/auth/static/geist-400.woff2", h.serve("assets/geist-400.woff2", "font/woff2"))
-	r.Get("/auth/static/geist-500.woff2", h.serve("assets/geist-500.woff2", "font/woff2"))
-	r.Get("/auth/static/geist-600.woff2", h.serve("assets/geist-600.woff2", "font/woff2"))
+	r.Get("/static/neoworks.css", h.serve("assets/neoworks.css", "text/css; charset=utf-8"))
+	r.Get("/static/icon.svg", h.serve("assets/icon.svg", "image/svg+xml"))
+	r.Get("/static/geist-400.woff2", h.serve("assets/geist-400.woff2", "font/woff2"))
+	r.Get("/static/geist-500.woff2", h.serve("assets/geist-500.woff2", "font/woff2"))
+	r.Get("/static/geist-600.woff2", h.serve("assets/geist-600.woff2", "font/woff2"))
 }
 
 func (h *Handler) serve(path, contentType string) http.HandlerFunc {

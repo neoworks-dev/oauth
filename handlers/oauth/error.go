@@ -28,11 +28,7 @@ var errorTmpl = template.Must(template.New("error").Parse(errorTemplate))
 // meaningful client to bounce back to), so the user sees an explanation
 // instead of a bare status code or a closed window.
 func RedirectToErrorPage(w http.ResponseWriter, r *http.Request, errorCode, description string) {
-	u := &url.URL{
-		Scheme: "http",
-		Host:   r.Host,
-		Path:   "/oauth/error",
-	}
+	u := &url.URL{Path: "/oauth/error"}
 
 	q := u.Query()
 	q.Set("error", errorCode)
@@ -51,6 +47,7 @@ func (h *ErrorPageHandler) serveError(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self'; frame-ancestors 'none'")
 	_ = errorTmpl.Execute(w, map[string]string{
 		"Error":       errorCode,
 		"Description": r.URL.Query().Get("error_description"),
