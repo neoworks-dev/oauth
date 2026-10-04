@@ -44,3 +44,27 @@ test("a wrong password stops a rotation before anything is sent", async ({ page 
   await expect(page.locator(".error:visible")).toBeVisible();
   await expect(page.locator("h1")).toHaveText("Your account");
 });
+
+test("replacing the identity keys links the new identity to the old one and keeps the account usable", async ({ page }) => {
+  const violations = collectViolations(page);
+  const account = newAccount();
+  await signUp(page, account);
+
+  await page.fill("#identity-password", account.password);
+  await page.click("#replace-identity");
+  await expect(page.locator("h1")).toHaveText("Save your recovery key");
+  await page.check("#recovery-confirm");
+  const completion = page.waitForRequest((request) => request.url().endsWith("/vault/rotate/complete"));
+  await page.click("#confirm-recovery");
+  const body = (await completion).postDataJSON();
+  expect(body.version).toBe(2);
+  expect(body.rotationSig).toMatch(/^[A-Za-z0-9_-]{86}$/);
+  await expect(page.locator("h1")).toHaveText("Your account");
+  await expect(page.locator("#finish-rotation")).toHaveCount(0);
+
+  await page.click("#sign-out");
+  await page.goto("/signin");
+  await signIn(page, account);
+  await expect(page.locator("h1")).toHaveText("Your account");
+  expect(violations).toEqual([]);
+});

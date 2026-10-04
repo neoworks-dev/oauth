@@ -102,7 +102,10 @@ test("escrow can be turned on later and turned off by replacing the key", async 
   await page.click("text=Turn off recovery help");
   await expect(page.locator("h1")).toHaveText("Save your recovery key");
   await page.check("#recovery-confirm");
+  // Turning escrow off is a full rotation: the identity changes and the link to the old one is sent.
+  const completion = page.waitForRequest((request) => request.url().endsWith("/vault/rotate/complete"));
   await page.click("#confirm-recovery");
+  expect((await completion).postDataJSON().rotationSig).toMatch(/^[A-Za-z0-9_-]{86}$/);
   await expect(page.locator("h1")).toHaveText("Your account");
   await expect(page.locator("#escrow-body")).toContainText("Only you can unlock");
 

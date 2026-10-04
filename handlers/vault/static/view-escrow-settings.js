@@ -1,7 +1,7 @@
 // Settings for opt-in recovery help (escrow): turn it on or off, and see or
 // cancel a recovery someone started.
 
-import { commitRotation, enableEscrow, prepareLightRotation } from "./account-actions.js";
+import { commitRotation, enableEscrow, finishRotation, prepareFullRotation } from "./account-actions.js";
 import { describeError, getJson, postJson } from "./nw-api.js";
 import { ESCROW_PUBLIC_KEY } from "./escrow-key.js";
 import { errorBox, field, h, withBusy } from "./nw-dom.js";
@@ -9,9 +9,9 @@ import { bytesToWords } from "./nw-recovery.js";
 import { renderRecoveryKeyConfirmation } from "./view-recovery-key.js";
 
 const TRADE_OFF = "The trade-off: we, or anyone who breaks into or legally compels us, could decrypt your data.";
-const DISABLE_NOTE = "Turning this off replaces your account key, creates a new recovery key and deletes our copy. " +
-  "Data written before this stays readable to anyone who already copied the old key or kept backups of it. " +
-  "A full re-encryption of existing data is not available yet.";
+const DISABLE_NOTE = "Turning this off replaces your account key and identity keys, creates a new recovery key and deletes our copy. " +
+  "Your own data keys are sealed to the new identity. People who shared something with you need to share it again afterwards. " +
+  "Anyone who already copied the old key can still read data written before this.";
 
 function passwordForm(label, onSubmit) {
   const password = field("Your password", { id: "escrow-password", type: "password", autocomplete: "current-password", required: true });
@@ -48,12 +48,13 @@ function recoveryNotice(recovery, repaint) {
 function enabledPanel(context) {
   const form = passwordForm("Turn off recovery help", async (password) => {
     const bundle = await getJson("/vault/bundle");
-    const prepared = prepareLightRotation(bundle, password, { mode: "disable" });
+    const prepared = prepareFullRotation(bundle, password, { mode: "disable" });
     renderRecoveryKeyConfirmation(context, {
       words: bytesToWords(prepared.recoveryEntropy),
-      confirmLabel: "Replace key and turn off",
+      confirmLabel: "Replace keys and turn off",
       onConfirm: async () => {
         await commitRotation(prepared);
+        await finishRotation(context.boot.apiUrl, password);
         context.navigate("/account");
       },
     });

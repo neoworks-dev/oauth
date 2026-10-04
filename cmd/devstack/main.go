@@ -68,7 +68,7 @@ func main() {
 	vaultRouter.Mount("/", vault.Router())
 
 	go listen(*escrowPort, escrowHandler)
-	go listen(*oauthPort, inbox.handler(oauthRouter))
+	go listen(*oauthPort, withAPIDouble(inbox.handler(oauthRouter), vaultURL))
 	go listen(*vaultPort, vaultRouter)
 	fmt.Printf("READY oauth=%s vault=%s\n", oauthURL, vaultURL)
 	waitForInterrupt()
