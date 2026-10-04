@@ -23,13 +23,6 @@ Argon2id and sends only that. See the contract in neoworks-dev/neoworks.dev#10.
 Source-available under the **PolyForm Shield License 1.0.0** — see
 [LICENSE.md](./LICENSE.md).
 
-## Building
-
-`go.mod` still has `replace github.com/neoworks/auth => ../api` for the legacy
-`handlers/fedcm`, `handlers/session`, `handlers/origins` and `middleware/sso`
-packages, which no longer have a route and are awaiting a decision. Everything
-else builds on its own (`internal/`).
-
 ## Development
 
 ```
