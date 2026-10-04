@@ -99,9 +99,16 @@ function rotationSection(context, session) {
     form);
 }
 
+function rotationEscrow(session) {
+  if (session.escrowEnabled) {
+    return { mode: "replace", publicKey: ESCROW_PUBLIC_KEY };
+  }
+  return { mode: "none" };
+}
+
 async function startRotation(context, session, password) {
   const bundle = await getJson("/vault/bundle");
-  const prepared = prepareLightRotation(bundle, password, { escrowEnabled: session.escrowEnabled, escrowPublicKey: ESCROW_PUBLIC_KEY });
+  const prepared = prepareLightRotation(bundle, password, rotationEscrow(session));
   renderRecoveryKeyConfirmation(context, {
     words: bytesToWords(prepared.recoveryEntropy),
     confirmLabel: "Replace key",

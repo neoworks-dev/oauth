@@ -20,7 +20,7 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   webServer: {
-    command: "go run ./cmd/devstack -oauth-port=18080 -vault-port=18087",
+    command: "go run ./cmd/devstack -oauth-port=18080 -vault-port=18087 -escrow-port=18090 -escrow-wait=3s",
     cwd: "..",
     url: vaultOrigin + "/signin",
     timeout: 120_000,

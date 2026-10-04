@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { collectViolations, newAccount, signUp } from "./helpers";
+import { authenticatorToken, collectViolations, newAccount, signUp } from "./helpers";
 
 test("the page forbids injected script and HTML sinks", async ({ page }) => {
   await page.goto("/signin");
@@ -36,7 +36,7 @@ test("the vault cannot be framed and sets hardening headers", async ({ page }) =
 test("the AMK handover unlocks a browser from the authenticator", async ({ page }) => {
   const violations = collectViolations(page);
   const account = newAccount();
-  await signUp(page, account, { remember: false });
+  await signUp(page, account, { remember: false, escrow: false });
   await page.reload();
   await expect(page.locator("h1")).toHaveText("Unlock your account");
 
@@ -48,15 +48,14 @@ test("the AMK handover unlocks a browser from the authenticator", async ({ page 
   const payload = JSON.parse(Buffer.from(payloadText.slice(5), "base64url").toString());
   expect(payload.v).toBe(1);
 
-  // Act as the authenticator: it knows the AMK and has an account token of its own.
-  const status = await page.evaluate(async ({ handover, password }) => {
+  // Act as the authenticator: it knows the AMK and has a token of its own client.
+  const token = await authenticatorToken(page.context());
+  const status = await page.evaluate(async ({ handover, password, token }) => {
     const account = await import("/static/vault/nw-account.js");
     const primitives = await import("/static/vault/nw-primitives.js");
     const bundle = await (await fetch("/vault/bundle")).json();
     const keys = account.derivePasswordKeys(password, { salt: bundle.pwhashSalt, ops: bundle.pwhashOps, mem: bundle.pwhashMem });
     const amk = account.unwrapAmk(keys.passwordKEK, primitives.decodeBase64Url(bundle.amkPassword), bundle.userId, "password");
-    const tokenReply = await fetch("/vault/token", { method: "POST", headers: { "X-NW-Vault": "1", "Content-Type": "application/json" }, body: "{}" });
-    const token = (await tokenReply.json()).access_token;
     const sealed = primitives.seal(primitives.decodeBase64Url(handover.tempPub), amk);
     const reply = await fetch("/vault/handover/" + handover.sessionId, {
       method: "POST",
@@ -64,7 +63,7 @@ test("the AMK handover unlocks a browser from the authenticator", async ({ page 
       body: JSON.stringify({ userId: bundle.userId, deviceId: crypto.randomUUID(), sealed: primitives.encodeBase64Url(sealed) }),
     });
     return reply.status;
-  }, { handover: payload, password: account.password });
+  }, { handover: payload, password: account.password, token });
   expect(status).toBe(200);
   await expect(page.locator("h1")).toHaveText("Your account", { timeout: 30_000 });
   expect(violations).toEqual([]);

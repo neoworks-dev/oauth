@@ -54,7 +54,7 @@ async function submitApproval(context, plan) {
   const selections = nonEmptySelections(plan.selections);
   const scopes = approvedScopesFor(challenge, selections);
   const body = { loginChallenge: context.challengeId, scopes };
-  if (challenge.install) {
+  if (challenge.install && identity !== null) {
     const certificate = buildCertificate({
       userId, clientId: challenge.clientId, install: challenge.install, scopes,
       signSec: identity.signSec, lifetimeMs: CERTIFICATE_LIFETIME_MS,
@@ -72,9 +72,10 @@ async function submitApproval(context, plan) {
 
 async function loadPlan(context) {
   const challenge = context.challenge;
-  const unlocked = requireUnlocked();
-  const plan = { challenge, identity: unlocked.identity, userId: unlocked.userId, collectionTrees: {}, index: new Map(), selections: {} };
+  const plan = { challenge, identity: null, userId: context.session.userId, collectionTrees: {}, index: new Map(), selections: {} };
   if (challenge.install && Object.keys(collectionRoles(challenge.scopes)).length > 0) {
+    const unlocked = requireUnlocked();
+    plan.identity = unlocked.identity;
     const tree = await getJson("/vault/tree");
     plan.index = buildKeyIndex(tree, unlocked.identity);
     plan.collectionTrees = describeCollections(tree, plan.index);

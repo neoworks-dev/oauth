@@ -19,6 +19,18 @@ export async function tryDeviceUnlock(session) {
   }
 }
 
+// ensureSession makes sure someone is signed in, without needing the AMK. Views
+// that never touch keys, like identity-only consent, use it.
+export async function ensureSession(context, onReady) {
+  const session = await getJson("/vault/session");
+  context.session = session;
+  if (!session.authenticated) {
+    renderLogin(context, { onDone: () => ensureSession(context, onReady) });
+    return;
+  }
+  onReady(session);
+}
+
 // ensureAccess makes sure there is a signed-in, unlocked account and then calls
 // onReady with the session. It renders login or unlock as needed.
 export async function ensureAccess(context, onReady) {

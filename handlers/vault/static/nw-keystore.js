@@ -4,14 +4,11 @@
 // the password when the user chose to remember it.
 
 import { unwrapIdentity } from "./nw-account.js";
-import { randomBytes, utf8, wipe } from "./nw-primitives.js";
+import { unwrapWithBrowserKey, wrapWithBrowserKey } from "./nw-browser-wrap.js";
+import { META_STORE, WRAP_STORE, deleteRecord, readRecord, writeRecord } from "./nw-idb.js";
+import { wipe } from "./nw-primitives.js";
 
-const DATABASE_NAME = "nw-vault";
-const WRAP_STORE = "device-wraps";
-const META_STORE = "meta";
-const DEVICE_ID_KEY = "deviceId";
 const IDLE_LOCK_MS = 15 * 60 * 1000;
-const IV_BYTES = 12;
 
 let unlocked = null;
 let idleTimer = null;
@@ -82,44 +79,9 @@ export function noteActivity() {
   }
 }
 
-// ── IndexedDB ────────────────────────────────────────────────────────────────
+// ── Browser device wrap ──────────────────────────────────────────────────────
 
-function awaitRequest(request) {
-  return new Promise((resolve, reject) => {
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-function openDatabase() {
-  const opening = indexedDB.open(DATABASE_NAME, 1);
-  opening.onupgradeneeded = () => {
-    opening.result.createObjectStore(WRAP_STORE, { keyPath: "userId" });
-    opening.result.createObjectStore(META_STORE);
-  };
-  return awaitRequest(opening);
-}
-
-async function readRecord(storeName, key) {
-  const database = await openDatabase();
-  const record = await awaitRequest(database.transaction(storeName).objectStore(storeName).get(key));
-  database.close();
-  return record;
-}
-
-async function writeRecord(storeName, record, key) {
-  const database = await openDatabase();
-  const transaction = database.transaction(storeName, "readwrite");
-  await awaitRequest(transaction.objectStore(storeName).put(record, key));
-  database.close();
-}
-
-async function deleteRecord(storeName, key) {
-  const database = await openDatabase();
-  const transaction = database.transaction(storeName, "readwrite");
-  await awaitRequest(transaction.objectStore(storeName).delete(key));
-  database.close();
-}
+const DEVICE_ID_KEY = "deviceId";
 
 // getDeviceId returns this browser's stable device id, creating it on first use.
 export async function getDeviceId() {
@@ -133,14 +95,12 @@ export async function getDeviceId() {
 }
 
 function deviceWrapAad(userId) {
-  return utf8("nw-device-wrap-v1:" + userId);
+  return "nw-device-wrap-v1:" + userId;
 }
 
 export async function saveDeviceWrap(userId, amk) {
-  const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
-  const iv = randomBytes(IV_BYTES);
-  const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: deviceWrapAad(userId) }, key, amk);
-  await writeRecord(WRAP_STORE, { userId, key, iv, ciphertext: new Uint8Array(ciphertext) });
+  const wrapped = await wrapWithBrowserKey(amk, deviceWrapAad(userId));
+  await writeRecord(WRAP_STORE, { userId, ...wrapped });
 }
 
 export async function hasDeviceWrap(userId) {
@@ -155,12 +115,7 @@ export async function loadDeviceWrap(userId) {
   if (!record) {
     return null;
   }
-  try {
-    const params = { name: "AES-GCM", iv: record.iv, additionalData: deviceWrapAad(userId) };
-    return new Uint8Array(await crypto.subtle.decrypt(params, record.key, record.ciphertext));
-  } catch (error) {
-    return null;
-  }
+  return unwrapWithBrowserKey(record, deviceWrapAad(userId));
 }
 
 export async function clearDeviceWrap(userId) {

@@ -70,11 +70,11 @@ func (server *Server) handleHandoverPoll(response http.ResponseWriter, request *
 }
 
 // handleHandoverDeliver is called by the authenticator with its own access
-// token. The token proves who the authenticator belongs to; the handover
-// session proves which browser asked.
+// token. The token must come from the authenticator's OAuth client and proves
+// whose authenticator it is; the handover session proves which browser asked.
 func (server *Server) handleHandoverDeliver(response http.ResponseWriter, request *http.Request) {
 	claims, ok := server.bearerClaims(request)
-	if !ok || claims.InstallID != "" {
+	if !ok || claims.ClientID != server.config.AuthenticatorClientID {
 		writeError(response, http.StatusUnauthorized, "invalid_token")
 		return
 	}

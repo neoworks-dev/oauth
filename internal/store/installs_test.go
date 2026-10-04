@@ -1,20 +1,32 @@
-package store
+package store_test
 
 import (
 	"context"
 	"testing"
 	"time"
+
+	. "github.com/neoworks/oauth/internal/store"
 )
 
 func TestInstallConsentRoundTrip(t *testing.T) {
 	db := requireStore(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
+	account := sampleAccount("user-i", "install-owner@example.com")
+	second := account.Nodes[0]
+	second.ID, second.Collection = "node-b", "contacts"
+	secondGrant := account.Grants[0]
+	secondGrant.NodeID = "node-b"
+	account.Nodes = append(account.Nodes, second)
+	account.Grants = append(account.Grants, secondGrant)
+	if err := db.CreateAccount(ctx, account); err != nil {
+		t.Fatalf("create account: %v", err)
+	}
 	consent := InstallConsent{
 		Install:     Install{ID: "install-1", UserID: "user-i", ClientID: "photos", EncPub: "ZW5j", SignPub: "c2ln", Name: "Photos", CreatedAt: now},
 		Certificate: Certificate{ID: "cert-1", Bytes: "Ynl0ZXM", Signature: "c2ln"},
 		Grants: []AccessGrant{
-			{NodeID: "node-a", PrincipalType: "install", PrincipalID: "install-1", Role: "read", Epoch: 1, WrappedKeys: "d3Jh", GrantedByType: "user", GrantedByID: "user-i", CertID: "cert-1", Signature: "c2ln", CreatedAt: now},
+			{NodeID: "root-user-i", PrincipalType: "install", PrincipalID: "install-1", Role: "read", Epoch: 1, WrappedKeys: "d3Jh", GrantedByType: "user", GrantedByID: "user-i", CertID: "cert-1", Signature: "c2ln", CreatedAt: now},
 			{NodeID: "node-b", PrincipalType: "install", PrincipalID: "install-1", Role: "write", Facets: []uint32{0, 1}, Epoch: 2, WrappedKeys: "d3Jh", GrantedByType: "user", GrantedByID: "user-i", CertID: "cert-1", Signature: "c2ln", CreatedAt: now},
 		},
 	}
@@ -50,7 +62,7 @@ func TestDeviceRegistrationRefusesRevokedDevice(t *testing.T) {
 	if err := db.RegisterDevice(ctx, "user-other", "device-1", "Laptop", "browser"); err != ErrRevoked {
 		t.Fatalf("device of another user must be refused, got %v", err)
 	}
-	if err := execute(ctx, db, "UPDATE device:⟨device-1⟩ SET revoked_at = time::now()", nil); err != nil {
+	if err := testSurreal.Exec("UPDATE device:⟨device-1⟩ SET revoked_at = time::now()", nil); err != nil {
 		t.Fatal(err)
 	}
 	active, err := db.IsDeviceActive(ctx, "user-d", "device-1")

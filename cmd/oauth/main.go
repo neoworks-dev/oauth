@@ -50,12 +50,13 @@ func main() {
 	debug := os.Getenv("DEBUG") == "true"
 
 	vault := vaulthandler.NewServer(vaulthandler.Config{
-		VaultURL:       vaultURL,
-		APIURL:         config.Env("API_URL", config.ServiceURL("api")),
-		OAuthURL:       issuerURL,
-		Debug:          debug,
-		SecureCookies:  config.SecureCookies(),
-		PreloginSecret: preloginSecret(keys),
+		VaultURL:              vaultURL,
+		APIURL:                config.Env("API_URL", config.ServiceURL("api")),
+		OAuthURL:              issuerURL,
+		Debug:                 debug,
+		SecureCookies:         config.SecureCookies(),
+		PreloginSecret:        preloginSecret(keys),
+		AuthenticatorClientID: config.Env("AUTHENTICATOR_CLIENT_ID", "neoworks-authenticator"),
 	}, database, redis, issuer, mail.NewSender(mail.ConfigFromEnv()), escrowFromEnv())
 
 	oauthRouter := chi.NewRouter()

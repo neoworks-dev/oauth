@@ -103,14 +103,10 @@ func (store *Store) SaveInstallConsent(ctx context.Context, consent InstallConse
 	}
 	return execute(ctx, store, `
 		BEGIN TRANSACTION;
-		UPSERT $install_id CONTENT {
-			user: $user, client: $client, enc_pub: $enc_pub, sign_pub: $sign_pub,
-			name: $install_name, created_at: $created_at
-		};
-		CREATE $certificate_id CONTENT {
-			user: $user, install: $install_id, bytes: $certificate_bytes,
-			signature: $certificate_signature, created_at: $created_at
-		};
+		UPSERT $install_id SET user = $user, client = $client, enc_pub = $enc_pub,
+			sign_pub = $sign_pub, name = $install_name;
+		CREATE $certificate_id SET user = $user, install = $install_id,
+			bytes = $certificate_bytes, signature = $certificate_signature;
 		DELETE access_grant WHERE principal_type = 'install' AND principal_id = $install_key
 			AND node_id IN $node_ids;
 		INSERT INTO access_grant $grant_rows;
@@ -124,7 +120,6 @@ func (store *Store) SaveInstallConsent(ctx context.Context, consent InstallConse
 			"enc_pub":               consent.Install.EncPub,
 			"sign_pub":              consent.Install.SignPub,
 			"install_name":          consent.Install.Name,
-			"created_at":            consent.Install.CreatedAt,
 			"certificate_id":        recordID("certificate", consent.Certificate.ID),
 			"certificate_bytes":     consent.Certificate.Bytes,
 			"certificate_signature": consent.Certificate.Signature,

@@ -170,7 +170,11 @@ func (handler *Handler) postToGoogle(ctx context.Context, form url.Values) (int,
 	if err != nil {
 		return 0, nil, err
 	}
-	return relayStatus(reply.StatusCode), relayFields(payload), nil
+	relayed, ok := relayFields(payload)
+	if !ok {
+		return http.StatusBadGateway, map[string]any{"error": "upstream_invalid_response"}, nil
+	}
+	return relayStatus(reply.StatusCode), relayed, nil
 }
 
 // relayStatus passes success and client errors through and reports upstream
@@ -184,10 +188,11 @@ func relayStatus(status int) int {
 
 var relayedFields = []string{"access_token", "refresh_token", "expires_in", "scope", "token_type", "error", "error_description"}
 
-func relayFields(payload []byte) map[string]any {
+// relayFields keeps only the token fields of Google's answer.
+func relayFields(payload []byte) (map[string]any, bool) {
 	var parsed map[string]any
 	if err := json.Unmarshal(payload, &parsed); err != nil {
-		return map[string]any{"error": "upstream_invalid_response"}
+		return nil, false
 	}
 	relayed := map[string]any{}
 	for _, field := range relayedFields {
@@ -196,7 +201,7 @@ func relayFields(payload []byte) map[string]any {
 			relayed[field] = value
 		}
 	}
-	return relayed
+	return relayed, true
 }
 
 func writeError(response http.ResponseWriter, status int, code string) {

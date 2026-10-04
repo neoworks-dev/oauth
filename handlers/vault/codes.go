@@ -41,7 +41,14 @@ func (server *Server) codeSendLimited(request *http.Request, purpose, email stri
 	if server.exceeded(request, "code_send:"+purpose+":"+emailDigest(email), codeSendMaxPerMail, codeSendWindow) {
 		return true
 	}
-	return server.exceeded(request, "code_send_ip:"+clientIP(request), codeSendMaxPerIP, codeSendWindow)
+	return server.exceeded(request, "code_send_ip:"+clientIP(request), server.codeSendIPLimit(), codeSendWindow)
+}
+
+func (server *Server) codeSendIPLimit() int64 {
+	if server.config.CodeSendMaxPerIP > 0 {
+		return int64(server.config.CodeSendMaxPerIP)
+	}
+	return codeSendMaxPerIP
 }
 
 // issueCode stores a fresh code and emails it. In debug builds a failed send is

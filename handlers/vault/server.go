@@ -52,6 +52,7 @@ type State interface {
 	MarkEmailVerified(ctx context.Context, email string) error
 	ConsumeEmailVerified(ctx context.Context, email string) (bool, error)
 	SaveResetToken(ctx context.Context, token, email string) error
+	PeekResetToken(ctx context.Context, token string) (string, error)
 	ConsumeResetToken(ctx context.Context, token string) (string, error)
 	CountWithin(ctx context.Context, key string, window time.Duration) (int64, error)
 	CreateHandover(ctx context.Context, sessionID string, session cache.HandoverSession) (bool, error)
@@ -69,6 +70,12 @@ type Config struct {
 	Debug          bool
 	SecureCookies  bool
 	PreloginSecret []byte
+	// AuthenticatorClientID is the OAuth client of the Neoworks Authenticator,
+	// the only client whose tokens may deliver an AMK in a handover.
+	AuthenticatorClientID string
+	// CodeSendMaxPerIP overrides how many verification emails one IP may
+	// request per window. Zero keeps the default. Browser tests raise it.
+	CodeSendMaxPerIP int
 }
 
 type Server struct {
@@ -115,6 +122,7 @@ func (server *Server) registerAPI(api chi.Router) {
 	api.Post("/forgot/verify-code", server.handleForgotVerifyCode)
 	api.Post("/forgot/reset", server.handleForgotReset)
 	api.Post("/handover/{sessionID}", server.handleHandoverDeliver)
+	server.registerPublicEscrowRoutes(api)
 	api.Group(func(authenticated chi.Router) {
 		authenticated.Use(server.requireSession)
 		server.registerAuthenticated(authenticated)

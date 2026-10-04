@@ -6,7 +6,10 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"sort"
 	"testing"
 	"time"
 
@@ -90,12 +93,66 @@ func tryConnect(url string) (*surrealdb.DB, error) {
 	if err := db.Use(ctx, "test", "test"); err != nil {
 		return nil, err
 	}
-	for _, table := range tables {
-		if _, err := surrealdb.Query[any](ctx, db, "DEFINE TABLE "+table+" SCHEMALESS", nil); err != nil {
-			return nil, err
-		}
+	if err := defineSchema(ctx, db); err != nil {
+		return nil, err
 	}
 	return db, nil
+}
+
+// defineSchema loads the api migrations when NEOWORKS_MIGRATIONS points at them,
+// which checks the stores against the real schema; otherwise it declares the
+// tables schemaless.
+func defineSchema(ctx context.Context, db *surrealdb.DB) error {
+	directory := migrationsDirectory()
+	if directory != "" {
+		return applyMigrations(ctx, db, directory)
+	}
+	for _, table := range tables {
+		if _, err := surrealdb.Query[any](ctx, db, "DEFINE TABLE "+table+" SCHEMALESS", nil); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// migrationsDirectory is NEOWORKS_MIGRATIONS, the api migrations to test the
+// stores against. Without it the tables are schemaless.
+func migrationsDirectory() string {
+	return os.Getenv("NEOWORKS_MIGRATIONS")
+}
+
+func applyMigrations(ctx context.Context, db *surrealdb.DB, directory string) error {
+	files, err := filepath.Glob(filepath.Join(directory, "*.surql"))
+	if err != nil {
+		return err
+	}
+	if len(files) == 0 {
+		return fmt.Errorf("no migrations found in %s", directory)
+	}
+	sort.Strings(files)
+	for _, file := range files {
+		script, err := os.ReadFile(file)
+		if err != nil {
+			return err
+		}
+		if err := runScript(ctx, db, file, string(script)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func runScript(ctx context.Context, db *surrealdb.DB, name, script string) error {
+	results, err := surrealdb.Query[any](ctx, db, script, nil)
+	if err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	for _, result := range *results {
+		if result.Error != nil {
+			return fmt.Errorf("%s: %v", name, result.Error)
+		}
+	}
+	return nil
 }
 
 // NewRedis starts an in-process Redis and a cache store connected to it.
@@ -123,4 +180,9 @@ func (surreal *Surreal) CreateClient(clientID string, redirectURIs, clientScopes
 func (surreal *Surreal) Exec(sql string, vars map[string]any) error {
 	_, err := surrealdb.Query[any](context.Background(), surreal.db, sql, vars)
 	return err
+}
+
+// DB exposes the raw connection, for repositories that bring their own schema.
+func (surreal *Surreal) DB() *surrealdb.DB {
+	return surreal.db
 }

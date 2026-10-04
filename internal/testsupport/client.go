@@ -174,3 +174,26 @@ func NewInstall() Install {
 	signPub, _, _ := ed25519.GenerateKey(rand.Reader)
 	return Install{ID: uuid.NewString(), EncPub: encPub, SignPub: signPub}
 }
+
+// PasswordChange is the body of a password change or reset for new password material.
+func (account *Account) PasswordChange(expectedVersion uint32, newAuthKey []byte) map[string]any {
+	return map[string]any{
+		"newAuthKey": wire.EncodeBase64URL(newAuthKey), "pwhash": PwhashParams(),
+		"amkPassword": wire.EncodeBase64URL(randomBytes(72)), "expectedVersion": expectedVersion,
+	}
+}
+
+// RotationRequest is the body of a rotation to bundle version expectedVersion+1.
+func (account *Account) RotationRequest(expectedVersion uint32, newAuthKey []byte) map[string]any {
+	bundle := account.Bundle(expectedVersion + 1)
+	request := account.PasswordChange(expectedVersion, newAuthKey)
+	request["amkPassword"] = bundle["amkPassword"]
+	request["currentAuthKey"] = account.AuthKeyText()
+	request["bundle"] = bundle
+	return request
+}
+
+// RandomKey returns 32 random bytes, for an authKey.
+func RandomKey() []byte {
+	return randomBytes(32)
+}

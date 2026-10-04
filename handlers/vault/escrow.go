@@ -7,8 +7,16 @@ import (
 	"time"
 )
 
-// ErrEscrowUnavailable is returned when no escrow service is configured.
-var ErrEscrowUnavailable = errors.New("escrow is not available")
+var (
+	// ErrEscrowUnavailable is returned when no escrow service is configured.
+	ErrEscrowUnavailable = errors.New("escrow is not available")
+	ErrEscrowRateLimited = errors.New("too many recovery attempts")
+	ErrEscrowPending     = errors.New("a recovery is already waiting")
+	ErrEscrowNotEnrolled = errors.New("account has no escrow record")
+	ErrRecoveryNotReady  = errors.New("the waiting period has not ended")
+	ErrRecoveryGone      = errors.New("recovery is cancelled, expired or unknown")
+	ErrRecoverySecret    = errors.New("recovery secret rejected")
+)
 
 // RecoveryAttempt is a started escrow recovery.
 type RecoveryAttempt struct {
@@ -28,7 +36,7 @@ type Escrow interface {
 	PendingRecoveries(ctx context.Context, userID string) ([]RecoveryAttempt, error)
 	CancelAsUser(ctx context.Context, userID, attemptID string) error
 	CancelWithToken(ctx context.Context, attemptID, cancelToken string) error
-	Claim(ctx context.Context, attemptID, claimSecret string) (string, error)
+	Claim(ctx context.Context, userID, attemptID, claimSecret string) (string, error)
 }
 
 // NoEscrow is the Escrow used when the deployment has no escrow service.
@@ -49,7 +57,7 @@ func (NoEscrow) CancelAsUser(context.Context, string, string) error { return Err
 func (NoEscrow) CancelWithToken(context.Context, string, string) error {
 	return ErrEscrowUnavailable
 }
-func (NoEscrow) Claim(context.Context, string, string) (string, error) {
+func (NoEscrow) Claim(context.Context, string, string, string) (string, error) {
 	return "", ErrEscrowUnavailable
 }
 

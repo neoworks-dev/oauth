@@ -78,7 +78,8 @@ function renderMethodStep(context, email, released) {
   }, failure.element, h("div", { class: "field" }, h("label", { for: "recovery-words-input" }, "Recovery key"), words), submit);
   const parts = [...heading("Use your recovery key", "Enter the words you saved when you created your account."), form];
   if (released.escrowEnabled && context.boot.escrowAvailable) {
-    parts.push(h("div", { class: "divider" }, "or"), renderEscrowRecovery(context, email, released));
+    parts.push(h("div", { class: "divider" }, "or"),
+      renderEscrowRecovery(context, email, released, (amk) => renderNewPasswordStep(context, released, amk)));
   }
   mountView(context, ...parts);
 }

@@ -37,9 +37,22 @@ export async function changePassword(currentPassword, newPassword) {
   wipe(currentAuthKey);
 }
 
+// escrowChange says what a rotation does with the escrow wrap: "replace" seals
+// the new AMK to the service key, "disable" drops the wrap, "none" leaves an
+// account without escrow alone.
+function escrowChange(escrow, amk) {
+  if (escrow.mode === "replace") {
+    return { sealedAmk: encodeBase64Url(seal(decodeBase64Url(escrow.publicKey), amk)) };
+  }
+  if (escrow.mode === "disable") {
+    return { disable: true };
+  }
+  return null;
+}
+
 // prepareLightRotation derives everything for the next bundle version: a new
 // AMK under the same identity, new password and recovery wraps. Nothing is sent.
-export function prepareLightRotation(bundle, password, { escrowEnabled, escrowPublicKey }) {
+export function prepareLightRotation(bundle, password, escrow) {
   const { userId, identity } = requireUnlocked();
   const currentAuthKey = proveCurrentPassword(bundle, userId, password);
   const amk = randomBytes(32);
@@ -54,8 +67,9 @@ export function prepareLightRotation(bundle, password, { escrowEnabled, escrowPu
     currentAuthKey: encodeBase64Url(currentAuthKey), newAuthKey: encodeBase64Url(passwordKeys.authKey), pwhash,
     amkPassword: nextBundle.amkPassword, expectedVersion: bundle.version, bundle: nextBundle,
   };
-  if (escrowEnabled) {
-    request.escrow = { sealedAmk: encodeBase64Url(seal(decodeBase64Url(escrowPublicKey), amk)) };
+  const escrowRequest = escrowChange(escrow, amk);
+  if (escrowRequest !== null) {
+    request.escrow = escrowRequest;
   }
   wipe(currentAuthKey);
   wipe(passwordKeys.authKey);
@@ -70,4 +84,16 @@ export async function commitRotation(prepared) {
   const bundle = await getJson("/vault/bundle");
   unlock(prepared.amk, bundle);
   wipe(prepared.recoveryEntropy);
+}
+
+// enableEscrow adds the escrow wrap to an account that chose "only you".
+export async function enableEscrow(password, escrowPublicKey) {
+  const { userId, amk } = requireUnlocked();
+  const bundle = await getJson("/vault/bundle");
+  const currentAuthKey = proveCurrentPassword(bundle, userId, password);
+  await postJson("/vault/escrow/enable", {
+    currentAuthKey: encodeBase64Url(currentAuthKey),
+    sealedAmk: encodeBase64Url(seal(decodeBase64Url(escrowPublicKey), amk)),
+  });
+  wipe(currentAuthKey);
 }

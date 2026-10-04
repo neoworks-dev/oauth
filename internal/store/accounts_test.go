@@ -1,9 +1,11 @@
-package store
+package store_test
 
 import (
 	"context"
 	"testing"
 	"time"
+
+	. "github.com/neoworks/oauth/internal/store"
 )
 
 func sampleAccount(userID, email string) NewAccount {

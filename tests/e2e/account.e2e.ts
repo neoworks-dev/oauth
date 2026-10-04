@@ -26,7 +26,7 @@ test("signup, sign-out, sign-in and a remembered browser", async ({ page }) => {
 test("a wrong password is rejected and an unremembered browser asks again", async ({ page }) => {
   const violations = collectViolations(page);
   const account = newAccount();
-  await signUp(page, account, { remember: false });
+  await signUp(page, account, { remember: false, escrow: false });
   await expect(page.locator("h1")).toHaveText("Your account");
 
   await page.reload();
@@ -84,7 +84,7 @@ test("change password", async ({ page }) => {
 test("forgot password with the recovery key", async ({ page }) => {
   const violations = collectViolations(page);
   const account = newAccount();
-  await signUp(page, account, { remember: false });
+  await signUp(page, account, { remember: false, escrow: false });
   await page.click("#sign-out");
 
   await page.goto("/recover");

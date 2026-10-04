@@ -7,6 +7,8 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -30,6 +32,7 @@ import (
 var testSurreal *testsupport.Surreal
 
 func TestMain(m *testing.M) {
+	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	surreal, err := testsupport.StartSurreal()
 	if err != nil {
 		panic(err)
@@ -67,7 +70,7 @@ func newSystem(t *testing.T) *system {
 	issuer := tokens.NewIssuer(signingKey, "http://oauth.test")
 	vaultServer := vaulthandler.NewServer(vaulthandler.Config{
 		VaultURL: vaultOrigin, APIURL: "http://api.test", OAuthURL: "http://oauth.test",
-		Debug: true, PreloginSecret: []byte("secret"),
+		Debug: true, PreloginSecret: []byte("secret"), AuthenticatorClientID: "neoworks-authenticator",
 	}, testSurreal.Store, redis, issuer, mail.NewSender(mail.Config{}), vaulthandler.NoEscrow{})
 	clientID := "app-" + testsupport.NewAccount("x@example.com").UserID[:8]
 	if err := testSurreal.CreateClient(clientID, []string{appRedirect}, allScopes(), false); err != nil {

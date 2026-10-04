@@ -265,3 +265,22 @@ func TestIdentityOnlyAuthorizationNeedsNoInstall(t *testing.T) {
 		t.Fatalf("token: %d %s", issued.Status, issued.Raw)
 	}
 }
+
+func TestIdentityScopesWithInstallParametersIssueAnInstalllessToken(t *testing.T) {
+	system := newSystem(t)
+	account := system.freshAccount("identityinstall")
+	install := testsupport.NewInstall()
+	verifier, challenge := pkce()
+	location := system.authorize(system.authorizeParams(install, challenge, "openid email"))
+	consent := system.browser.Do("POST", "/vault/consent", map[string]any{"loginChallenge": challengeID(location), "scopes": []string{"openid", "email"}}, nil)
+	if consent.Status != 200 {
+		t.Fatalf("consent without a certificate: %d %s", consent.Status, consent.Raw)
+	}
+	redirect, _ := url.Parse(consent.Body["redirect"].(string))
+	issued := system.exchange(redirect.Query().Get("code"), verifier)
+	accessToken := issued.Body["access_token"].(string)
+	introspection := system.introspect(accessToken, accessToken)
+	if issued.Body["neoworks_grant"] != nil || introspection.Body["install_id"] != nil || introspection.Body["sub"] != account.UserID {
+		t.Fatalf("identity-only tokens carry no install: %s / %s", issued.Raw, introspection.Raw)
+	}
+}

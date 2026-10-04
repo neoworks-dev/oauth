@@ -18,7 +18,7 @@ import (
 	vaulthandler "github.com/neoworks/oauth/handlers/vault"
 	"github.com/neoworks/oauth/internal/app"
 	"github.com/neoworks/oauth/internal/cache"
-	"github.com/neoworks/oauth/internal/mail"
+	"github.com/neoworks/oauth/internal/escrow"
 	"github.com/neoworks/oauth/internal/signing"
 	"github.com/neoworks/oauth/internal/testsupport"
 	"github.com/neoworks/oauth/internal/tokens"
@@ -27,6 +27,8 @@ import (
 func main() {
 	oauthPort := flag.Int("oauth-port", 18080, "port of the oauth origin")
 	vaultPort := flag.Int("vault-port", 18087, "port of the vault origin")
+	escrowPort := flag.Int("escrow-port", 18090, "port of the escrow service")
+	escrowWait := flag.Duration("escrow-wait", 3*time.Second, "escrow recovery waiting period")
 	flag.Parse()
 
 	surreal, err := testsupport.StartSurreal()
@@ -50,10 +52,13 @@ func main() {
 		log.Fatal(err)
 	}
 	issuer := tokens.NewIssuer(keys.PrivateKey(), oauthURL)
+	inbox := &mailbox{}
+	escrowURL, escrowHandler := startEscrow(inbox, vaultURL, *escrowPort, *escrowWait)
 	vault := vaulthandler.NewServer(vaulthandler.Config{
 		VaultURL: vaultURL, APIURL: oauthURL, OAuthURL: oauthURL, Debug: true,
-		PreloginSecret: keys.DerivedSecret("prelogin"),
-	}, surreal.Store, state, issuer, mail.NewSender(mail.Config{}), vaulthandler.NoEscrow{})
+		PreloginSecret: keys.DerivedSecret("prelogin"), AuthenticatorClientID: "neoworks-authenticator",
+		CodeSendMaxPerIP: 10000,
+	}, surreal.Store, state, issuer, inbox, vaulthandler.NewHTTPEscrow(escrowURL, devEscrowToken))
 	oauthRouter := app.NewOAuthRouter(app.OAuthDependencies{
 		Store: surreal.Store, State: state, Issuer: issuer, Keys: keys, Vault: vault,
 		IssuerURL: oauthURL, VaultURL: vaultURL,
@@ -62,10 +67,21 @@ func main() {
 	vaultRouter := chi.NewRouter()
 	vaultRouter.Mount("/", vault.Router())
 
-	go listen(*oauthPort, oauthRouter)
+	go listen(*escrowPort, escrowHandler)
+	go listen(*oauthPort, inbox.handler(oauthRouter))
 	go listen(*vaultPort, vaultRouter)
 	fmt.Printf("READY oauth=%s vault=%s\n", oauthURL, vaultURL)
 	waitForInterrupt()
+}
+
+const devEscrowToken = "devstack-escrow-token"
+
+// startEscrow builds the escrow service on in-memory storage with the
+// development keys and returns its URL and handler.
+func startEscrow(inbox *mailbox, vaultURL string, port int, waiting time.Duration) (string, http.Handler) {
+	service := escrow.NewService(escrow.NewMemoryRepository(), escrow.NewMemoryKMS(), inbox, escrow.DevServiceKey(),
+		escrow.Config{WaitingPeriod: waiting, CancelBaseURL: vaultURL + "/recover/cancel"}, time.Now)
+	return fmt.Sprintf("http://localhost:%d", port), escrow.NewHandler(service, devEscrowToken)
 }
 
 func seedClients(surreal *testsupport.Surreal, oauthURL string) {
@@ -78,6 +94,10 @@ func seedClients(surreal *testsupport.Surreal, oauthURL string) {
 		log.Fatal(err)
 	}
 	if err := surreal.CreateClient("e2e-first-party", redirects, scopes, true); err != nil {
+		log.Fatal(err)
+	}
+	identityScopes := []string{"openid", "profile", "email"}
+	if err := surreal.CreateClient("neoworks-authenticator", redirects, identityScopes, true); err != nil {
 		log.Fatal(err)
 	}
 }

@@ -1,51 +1,51 @@
 # NeoWorks OAuth
 
-OAuth 2.0 / OpenID Connect authorization server for the NeoWorks platform. It
-implements the authorization-code (with PKCE), refresh-token, and
-client-credentials grants, plus token introspection, revocation, JWKS, and the
-login/consent callback flow.
+Authorization server and account vault for NeoWorks. Two origins, one binary:
+
+- **oauth origin** (`PORT`, default 8080): `/oauth/authorize` (hands the browser
+  to the vault), `/oauth/token`, introspection, revocation, userinfo, JWKS,
+  discovery, the stateless Google token proxy (`/google/token/*`) and the
+  authenticator's handover delivery (`POST /vault/handover/{sessionId}`).
+- **vault origin** (`VAULT_PORT`, default 8087, `https://vault.<BASE_DOMAIN>`):
+  the account vault single-page app and its JSON API. It serves nothing else,
+  cannot be framed and runs under a strict CSP with Trusted Types. The plaintext
+  account master key exists only in this page's memory. Route
+  `vault.<BASE_DOMAIN>` to `VAULT_PORT` in the reverse proxy.
+
+`cmd/escrow` is the opt-in key escrow service: its own process, its own SurrealDB
+namespace (`escrow`) and its own KMS key (a key file in development).
+
+The service no longer reads any password: the browser derives `authKey` with
+Argon2id and sends only that. See the contract in neoworks-dev/neoworks.dev#10.
 
 ## License
 
 Source-available under the **PolyForm Shield License 1.0.0** — see
-[LICENSE.md](./LICENSE.md). In short: you may use, modify, and self-host this
-software for any purpose **except** building a product or service that competes
-with NeoWorks or any NeoWorks product. There is no warranty.
+[LICENSE.md](./LICENSE.md).
 
-## Building — read this first
+## Building
 
-This module is **not standalone**. `go.mod` contains:
+`go.mod` still has `replace github.com/neoworks/auth => ../api` for the legacy
+`handlers/fedcm`, `handlers/session`, `handlers/origins` and `middleware/sso`
+packages, which no longer have a route and are awaiting a decision. Everything
+else builds on its own (`internal/`).
 
-```
-replace github.com/neoworks/auth => ../api
-```
-
-It reuses shared packages (`oauth`, `storage/...`, `handlers/shared`, `crypto`,
-`middleware`, …) from the `apps/api` module of the NeoWorks monorepo. It only
-builds when checked out at `apps/oauth` inside that monorepo, with the `api`
-module present as a sibling at `../api`.
-
-This repository is therefore consumed as a **git submodule** of the monorepo,
-not cloned and built on its own. Cloning it alone and running `go build` will
-fail to resolve `github.com/neoworks/auth`.
-
-## Local development
-
-From the monorepo root, the dev stack (SurrealDB, Redis, Caddy, air-reloaded
-Go services) brings this server up on `:8080`. Configuration is read from
-`.env` (see `.env.example` for the expected keys: `KEY_PATH`, `REDIS_URL`,
-`SURREAL_URL`, `SURREAL_NS`, `SURREAL_DB`, `ISSUER_URL`, `LOGIN_URL`, `PORT`).
-
-## Tests
-
-`tests/` holds live integration suites (Bun) that exercise the running server
-end to end against real SurrealDB and Redis:
+## Development
 
 ```
-cd tests
-bun install
-bun test
+go build ./... && go vet ./... && go test ./...
+cd tests && bun install && bun test      # JS crypto, incl. the contract test vectors
+cd tests && bunx playwright test          # real browser against `cmd/devstack`
 ```
 
-The stack must be running. Fixtures are namespaced `zztest-*` and cleaned up
-after each run.
+`cmd/devstack` runs both origins, the escrow service, an in-memory SurrealDB and
+an in-process Redis (needs the `surreal` binary); Playwright starts it itself.
+Go tests start an in-memory SurrealDB too and skip when the binary is missing.
+Set `NEOWORKS_MIGRATIONS=../api/sql/migrations` to run them against the real
+schema instead of schemaless tables.
+
+## Configuration
+
+See `.env.example`. Notable: `VAULT_URL`, `API_URL`, `ISSUER_URL`,
+`AUTHENTICATOR_CLIENT_ID`, `ESCROW_URL` + `ESCROW_SERVICE_TOKEN`,
+`ESCROW_PUBLIC_KEY` is pinned in `handlers/vault/static/escrow-key.js`.

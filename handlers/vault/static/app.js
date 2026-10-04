@@ -1,13 +1,15 @@
 // Entry point of the account vault single-page app. It keeps the plaintext AMK
 // alive across views by navigating with the History API instead of reloading.
 
-import { ensureAccess } from "./flows.js";
+import { ensureAccess, ensureSession } from "./flows.js";
 import { ApiError, getJson } from "./nw-api.js";
 import { h } from "./nw-dom.js";
 import { noteActivity, setLockListener } from "./nw-keystore.js";
 import { heading, mountView } from "./nw-layout.js";
+import { collectionRoles } from "./nw-scopes.js";
 import { ready } from "./nw-primitives.js";
 import { renderAccount } from "./view-account.js";
+import { renderCancelRecovery } from "./view-cancel-recovery.js";
 import { renderConsent } from "./view-consent.js";
 import { renderRecover } from "./view-recover.js";
 import { renderSignup } from "./view-signup.js";
@@ -70,10 +72,23 @@ function continueAfterAccess() {
   navigate("/account");
 }
 
-async function routeSignin() {
-  if (await loadChallenge()) {
-    await ensureAccess(context, continueAfterAccess);
+// needsKeys is true when approving the request wraps keys to an install.
+function needsKeys(challenge) {
+  if (challenge === null || challenge.install === null) {
+    return false;
   }
+  return Object.keys(collectionRoles(challenge.scopes)).length > 0;
+}
+
+async function routeSignin() {
+  if (!(await loadChallenge())) {
+    return;
+  }
+  if (needsKeys(context.challenge) || context.challenge === null) {
+    await ensureAccess(context, continueAfterAccess);
+    return;
+  }
+  await ensureSession(context, continueAfterAccess);
 }
 
 async function routeSignup() {
@@ -97,6 +112,7 @@ const ROUTES = {
   "/signin": routeSignin,
   "/signup": routeSignup,
   "/recover": () => renderRecover(context),
+  "/recover/cancel": () => renderCancelRecovery(context),
   "/handover": routeHandoverLanding,
 };
 

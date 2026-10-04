@@ -51,6 +51,9 @@ type consentContext struct {
 	challenge *cache.LoginChallenge
 	approved  []string
 	now       time.Time
+	// bindsInstall is true when data scopes were approved, so the code and
+	// tokens are bound to the install and the install receives grants.
+	bindsInstall bool
 }
 
 func (server *Server) handleConsent(response http.ResponseWriter, request *http.Request) {
@@ -63,7 +66,7 @@ func (server *Server) handleConsent(response http.ResponseWriter, request *http.
 	if !ok {
 		return
 	}
-	if consent.challenge.Install != nil {
+	if consent.bindsInstall {
 		if !server.storeInstallConsent(response, request, consent, body) {
 			return
 		}
@@ -96,7 +99,10 @@ func (server *Server) consentContextFor(response http.ResponseWriter, request *h
 		writeError(response, http.StatusInternalServerError, "server_error")
 		return consentContext{}, false
 	}
-	return consentContext{userID: userID, signPub: signPub, challenge: challenge, approved: body.Scopes, now: time.Now().UTC()}, true
+	return consentContext{
+		userID: userID, signPub: signPub, challenge: challenge, approved: body.Scopes, now: time.Now().UTC(),
+		bindsInstall: challenge.Install != nil && scopes.WantsCollections(body.Scopes),
+	}, true
 }
 
 // storeInstallConsent verifies the certificate and grants and writes them.
@@ -299,7 +305,7 @@ func (server *Server) issueAuthorizationCode(response http.ResponseWriter, reque
 		Scopes: consent.approved, CodeChallenge: challenge.CodeChallenge, CodeChallengeMethod: challenge.CodeChallengeMethod,
 		ExpiresAt: time.Now().Add(authCodeTTL),
 	}
-	if challenge.Install != nil {
+	if consent.bindsInstall {
 		authCode.InstallID = challenge.Install.ID
 	}
 	if err := server.state.SaveAuthCode(ctx, authCode); err != nil {

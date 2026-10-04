@@ -105,7 +105,7 @@ function renderEscrowStep(context, details, onDone) {
     "If you forget your password and lose your recovery key, your data is gone. Nobody can read it, not even us.", true);
   const help = escrowOption("escrow-help", "Neoworks can help you recover",
     "We can restore your access after verifying your email and a waiting period. The trade-off: we, or anyone who breaks into or legally compels us, could decrypt your data.", false);
-  const next = h("button", { type: "button", onclick: () => startRecoveryStep(context, details, help.input.checked, onDone) }, "Continue");
+  const next = h("button", { type: "button", id: "escrow-continue", onclick: () => startRecoveryStep(context, details, help.input.checked, onDone) }, "Continue");
   mountView(context, ...heading("Protect your account", "Choose what happens if you lose access. You can change this later in settings."),
     keep.row, help.row, next);
 }

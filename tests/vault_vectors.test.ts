@@ -128,16 +128,22 @@ run("contract vectors", () => {
     expect(hex(primitives.hash(bytes))).toBe(v.canonicalBlobHashHex);
   });
 
-  test("grant messages and signatures", () => {
+  test("grants seal the node key or the facet keys to the principal", () => {
     const v = vectors.grant;
-    for (const variant of [v.wholeNode, v.facetGrant]) {
-      const grant = variant.grantJson;
-      const wrappedKeys = primitives.decodeBase64Url(grant.wrappedKeys);
-      const message = nodes.grantMessage({ ...grant, wrappedKeys });
-      expect(hex(message)).toBe(variant.signatureMessageHex);
-      expect(hex(primitives.sign(fromHex(v.granterSignSecHex), message))).toBe(variant.signatureHex);
-    }
+    const principalPub = fromHex(v.principalEncPubHex);
+    const principalSec = fromHex(v.principalEncSecHex);
+    const whole = primitives.sealOpen(principalPub, principalSec, fromHex(v.wholeNode.wrappedKeysHex));
+    expect(hex(whole)).toBe(v.nodeKeyHex);
+    expect(v.wholeNode.facetsCsv).toBe("");
+    const facets = primitives.sealOpen(principalPub, principalSec, fromHex(v.facetGrant.wrappedKeysHex));
+    expect(hex(facets)).toBe(v.facetGrant.sealedPlaintextHex);
+    expect(v.facetGrant.facetsCsv).toBe("1");
   });
+
+  // Contract amendment 1 replaced the grant signature with access log entries
+  // (nw-access-entry-v1). The vault still signs the earlier nw-access-v1 grant
+  // message, so this stays pending until the entry construction is implemented.
+  test.todo("access log entries are reproduced (contract amendment 1)");
 
   test("delegation signature covers the exact certificate bytes", () => {
     const v = vectors.delegation;
