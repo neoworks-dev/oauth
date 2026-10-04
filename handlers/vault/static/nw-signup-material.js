@@ -3,7 +3,7 @@
 import {
   buildBundle, createIdentity, deriveRecoveryKek, derivePasswordKeys, newPwhashParams,
 } from "./nw-account.js";
-import { ROOT_COLLECTIONS, createGrant, createRootNode } from "./nw-nodes.js";
+import { ROOT_COLLECTIONS, createGrant, createRootNode, nextLogPosition } from "./nw-nodes.js";
 import { bytesToWords } from "./nw-recovery.js";
 import { decodeBase64Url, encodeBase64Url, randomBytes, seal, wipe } from "./nw-primitives.js";
 
@@ -14,8 +14,8 @@ function buildRoots(userId, identity) {
     const { node, nodeKey } = createRootNode({ userId, collection, identity });
     nodes.push(node);
     grants.push(createGrant({
-      nodeId: node.id, nodeKey, epoch: node.epoch, role: "admin", principalType: "user", principalId: userId,
-      principalEncPub: identity.encPub, granter: { userId, signSec: identity.signSec },
+      nodeId: node.id, nodeKey, epoch: node.epoch, role: "write", principalType: "user", principalId: userId,
+      principalEncPub: identity.encPub, granter: { userId, signSec: identity.signSec }, position: nextLogPosition(null),
     }));
     wipe(nodeKey);
   }

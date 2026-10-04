@@ -2,7 +2,9 @@
 
 import { ROOT_COLLECTIONS } from "./nw-nodes.js";
 
-const COLLECTION_LABELS = { calendar: "calendars", contacts: "contacts", photos: "photos", files: "files" };
+const COLLECTION_LABELS = {
+  calendar: "calendars", contacts: "contacts", photos: "photos", files: "files", google: "linked Google account",
+};
 
 const IDENTITY_TEXT = {
   openid: "Know who you are",
@@ -37,6 +39,9 @@ export function describeScope(scope) {
   const collection = collectionOf(scope);
   if (collection === null) {
     return IDENTITY_TEXT[scope];
+  }
+  if (collection === "google") {
+    return "Access your linked Google account";
   }
   if (scope.endsWith(":write")) {
     return "View and change your " + COLLECTION_LABELS[collection];

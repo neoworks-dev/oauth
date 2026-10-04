@@ -25,6 +25,16 @@ type Account struct {
 	SignSec  ed25519.PrivateKey
 	RootIDs  map[string]string
 	RootKeys map[string][]byte
+	// LogHeads is the access log head per node as the server holds it;
+	// builtEntries are the entries Grant signed since the last CommitGrants.
+	LogHeads     map[string]LogHead
+	builtEntries map[string]LogHead
+}
+
+// LogHead is the newest entry of a node's access log.
+type LogHead struct {
+	Index uint64
+	Hash  []byte
 }
 
 func randomBytes(size int) []byte {
@@ -40,6 +50,7 @@ func NewAccount(email string) *Account {
 		UserID: uuid.NewString(), Email: email, AuthKey: randomBytes(32), DeviceID: uuid.NewString(),
 		EncPub: encPub, EncSec: encSec, SignPub: signPub, SignSec: signSec,
 		RootIDs: map[string]string{}, RootKeys: map[string][]byte{},
+		LogHeads: map[string]LogHead{}, builtEntries: map[string]LogHead{},
 	}
 	for _, collection := range scopes.Collections {
 		account.RootIDs[collection] = uuid.NewString()
@@ -69,22 +80,25 @@ func (account *Account) rootNode(collection string) map[string]any {
 	}
 }
 
-// Grant builds a signed access grant for a node key.
+// Grant builds a signed access grant for a node key whose log entry extends
+// the node's head in LogHeads.
 func (account *Account) Grant(nodeID, principalType, principalID, role string, epoch uint32, facets []uint32, sealedTo *[32]byte, certID string) map[string]any {
 	keyCount := 1
 	if len(facets) > 0 {
 		keyCount = len(facets)
 	}
 	wrapped := Seal(sealedTo, randomBytes(32*keyCount))
-	message := wire.AccessGrantMessage{
-		NodeID: nodeID, PrincipalType: principalType, PrincipalID: principalID, Role: role,
-		Facets: facets, Epoch: epoch, WrappedKeys: wrapped,
-	}
+	entry := account.nextEntry(nodeID)
+	entry.PrincipalType, entry.PrincipalID, entry.Role = principalType, principalID, role
+	entry.Facets, entry.Epoch, entry.WrappedKeysHash, entry.CertID = facets, epoch, wire.Hash(wrapped), certID
+	entryBytes := entry.Bytes()
+	account.builtEntries[nodeID] = LogHead{Index: entry.Index, Hash: wire.Hash(entryBytes)}
 	grant := map[string]any{
 		"nodeId": nodeID, "principalType": principalType, "principalId": principalID, "role": role,
 		"facets": nil, "epoch": epoch, "wrappedKeys": wire.EncodeBase64URL(wrapped),
 		"grantedByType": "user", "grantedById": account.UserID, "certId": nil,
-		"signature": wire.EncodeBase64URL(ed25519.Sign(account.SignSec, message.Bytes())),
+		"signature": wire.EncodeBase64URL(ed25519.Sign(account.SignSec, entryBytes)),
+		"logIndex":  entry.Index, "prevHash": wire.EncodeBase64URL(entry.PrevHash),
 	}
 	if facets != nil {
 		grant["facets"] = facets
@@ -93,6 +107,27 @@ func (account *Account) Grant(nodeID, principalType, principalID, role string, e
 		grant["certId"] = certID
 	}
 	return grant
+}
+
+// nextEntry is a grant entry by the account at the position after the node's head.
+func (account *Account) nextEntry(nodeID string) wire.AccessEntryMessage {
+	entry := wire.AccessEntryMessage{
+		NodeID: nodeID, PrevHash: wire.GenesisPrevHash, Action: "grant", ActorType: "user", ActorID: account.UserID,
+	}
+	head, found := account.LogHeads[nodeID]
+	if found {
+		entry.Index, entry.PrevHash = head.Index+1, head.Hash
+	}
+	return entry
+}
+
+// CommitGrants records the entries Grant built as the new log heads, once the
+// server accepted them.
+func (account *Account) CommitGrants() {
+	for nodeID, head := range account.builtEntries {
+		account.LogHeads[nodeID] = head
+	}
+	account.builtEntries = map[string]LogHead{}
 }
 
 // SelfSignature signs the identity public keys.
@@ -122,8 +157,10 @@ func (account *Account) SignupRequest() map[string]any {
 	grants := []map[string]any{}
 	for _, collection := range scopes.Collections {
 		nodes = append(nodes, account.rootNode(collection))
-		grants = append(grants, account.Grant(account.RootIDs[collection], "user", account.UserID, "admin", 1, nil, account.EncPub, ""))
+		delete(account.LogHeads, account.RootIDs[collection])
+		grants = append(grants, account.Grant(account.RootIDs[collection], "user", account.UserID, "write", 1, nil, account.EncPub, ""))
 	}
+	account.CommitGrants()
 	return map[string]any{
 		"email": account.Email, "firstName": "Test", "lastName": "User", "userId": account.UserID,
 		"authKey": account.AuthKeyText(), "pwhash": PwhashParams(), "bundle": account.Bundle(1),

@@ -117,18 +117,23 @@ describe("nodes", () => {
     expect(() => nodes.unwrapNodeKey(parentKey, wrapped, { ...info, id: "other" })).toThrow();
   });
 
-  test("a grant seals the node key to the principal and is signed", () => {
+  test("a grant seals the node key to the principal and signs its log entry", () => {
     const owner = account.createIdentity();
     const recipient = primitives.boxKeypair();
     const nodeKey = primitives.randomBytes(32);
     const grant = nodes.createGrant({
       nodeId: "node-1", nodeKey, epoch: 1, role: "read", principalType: "install", principalId: "install-1",
       principalEncPub: recipient.publicKey, granter: { userId: "user-1", signSec: owner.signSec }, certId: "cert-1",
+      position: nodes.nextLogPosition(null),
     });
-    const opened = primitives.sealOpen(recipient.publicKey, recipient.secretKey, primitives.decodeBase64Url(grant.wrappedKeys));
+    const wrappedKeys = primitives.decodeBase64Url(grant.wrappedKeys);
+    const opened = primitives.sealOpen(recipient.publicKey, recipient.secretKey, wrappedKeys);
     expect(hex(opened)).toBe(hex(nodeKey));
-    const message = nodes.grantMessage({ ...grant, wrappedKeys: primitives.decodeBase64Url(grant.wrappedKeys) });
-    expect(primitives.verify(owner.signPub, message, primitives.decodeBase64Url(grant.signature))).toBe(true);
+    const entryBytes = nodes.accessEntryBytes({
+      ...grant, index: grant.logIndex, prevHash: primitives.decodeBase64Url(grant.prevHash), action: "grant",
+      wrappedKeysHash: primitives.hash(wrappedKeys), actorType: "user", actorId: "user-1",
+    });
+    expect(primitives.verify(owner.signPub, entryBytes, primitives.decodeBase64Url(grant.signature))).toBe(true);
     expect(grant.certId).toBe("cert-1");
   });
 

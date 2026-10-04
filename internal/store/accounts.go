@@ -32,7 +32,7 @@ func (store *Store) CreateAccount(ctx context.Context, account NewAccount) error
 	logRows := make([]map[string]any, 0, len(account.Grants))
 	for _, grant := range account.Grants {
 		grantRows = append(grantRows, accessGrantFields(grant))
-		logRows = append(logRows, accessLogFields(grant, "grant"))
+		logRows = append(logRows, accessLogFields(grant))
 	}
 	bundle := bundleFields(account.Bundle)
 	bundle["user"] = recordID("user", account.UserID)

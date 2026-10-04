@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/neoworks/oauth/internal/scopes"
 	"github.com/neoworks/oauth/internal/testsupport"
 	"github.com/neoworks/oauth/internal/wire"
 )
@@ -22,7 +23,7 @@ func TestSignupWritesAccountAndSignsIn(t *testing.T) {
 		t.Fatalf("bundle: %d %s", bundle.Status, bundle.Raw)
 	}
 	tree := vault.browser.Do("GET", "/vault/tree", nil, nil)
-	if tree.Status != 200 || len(tree.Body["nodes"].([]any)) != 4 || len(tree.Body["grants"].([]any)) != 4 {
+	if tree.Status != 200 || len(tree.Body["nodes"].([]any)) != len(scopes.Collections) || len(tree.Body["grants"].([]any)) != len(scopes.Collections) {
 		t.Fatalf("tree: %d %s", tree.Status, tree.Raw)
 	}
 }

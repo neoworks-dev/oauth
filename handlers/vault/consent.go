@@ -3,6 +3,7 @@ package vault
 import (
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"slices"
 	"time"
@@ -13,6 +14,8 @@ import (
 	"github.com/neoworks/oauth/internal/store"
 	"github.com/neoworks/oauth/internal/wire"
 )
+
+var errLogHeadMoved = errors.New("access log head moved")
 
 const (
 	authCodeTTL         = 5 * time.Minute
@@ -117,6 +120,10 @@ func (server *Server) storeInstallConsent(response http.ResponseWriter, request 
 		return false
 	}
 	grants, err := server.verifiedInstallGrants(request, consent, certificate, body.Grants)
+	if errors.Is(err, errLogHeadMoved) {
+		writeError(response, http.StatusConflict, "log_head_moved")
+		return false
+	}
 	if err != nil {
 		writeError(response, http.StatusBadRequest, "invalid_grants")
 		return false
@@ -239,19 +246,51 @@ func (server *Server) verifiedInstallGrants(request *http.Request, consent conse
 		if !found || seenNodes[grant.NodeID] {
 			return nil, errInvalidPayload
 		}
-		if err := checkInstallGrant(consent, certificate, roles, node, grant); err != nil {
+		storedGrant, err := checkInstallGrant(consent, certificate, roles, node, grant)
+		if err != nil {
 			return nil, err
 		}
 		seenNodes[grant.NodeID] = true
 		coveredCollections[node.Collection] = true
-		stored = append(stored, grant.toStored(consent.now))
+		stored = append(stored, storedGrant)
 	}
 	for collection := range roles {
 		if !coveredCollections[collection] {
 			return nil, errInvalidPayload
 		}
 	}
+	if err := server.checkLogHeads(request, stored); err != nil {
+		return nil, err
+	}
 	return stored, nil
+}
+
+// checkLogHeads requires every grant's entry to extend its node's access log
+// head. A concurrent append to the same index still fails on the log's unique
+// (node_id, index) index when the consent is written.
+func (server *Server) checkLogHeads(request *http.Request, grants []store.AccessGrant) error {
+	nodeIDs := make([]string, 0, len(grants))
+	for _, grant := range grants {
+		nodeIDs = append(nodeIDs, grant.NodeID)
+	}
+	heads, err := server.store.ListLogHeads(request.Context(), nodeIDs)
+	if err != nil {
+		return err
+	}
+	for _, grant := range grants {
+		if !extendsHead(grant, heads) {
+			return errLogHeadMoved
+		}
+	}
+	return nil
+}
+
+func extendsHead(grant store.AccessGrant, heads map[string]store.LogHead) bool {
+	head, found := heads[grant.NodeID]
+	if !found {
+		return grant.LogIndex == 0 && grant.PrevHash == wire.EncodeBase64URL(wire.GenesisPrevHash)
+	}
+	return grant.LogIndex == head.Index+1 && grant.PrevHash == head.EntryHash
 }
 
 func (server *Server) grantedNodes(request *http.Request, grants []grantPayload) (map[string]store.NodeOwnership, error) {
@@ -270,18 +309,18 @@ func (server *Server) grantedNodes(request *http.Request, grants []grantPayload)
 	return byID, nil
 }
 
-func checkInstallGrant(consent consentContext, certificate *certificateDocument, roles map[string]string, node store.NodeOwnership, grant grantPayload) error {
+func checkInstallGrant(consent consentContext, certificate *certificateDocument, roles map[string]string, node store.NodeOwnership, grant grantPayload) (store.AccessGrant, error) {
 	install := consent.challenge.Install
 	targetsInstall := grant.PrincipalType == "install" && grant.PrincipalID == install.ID
 	grantedByUser := grant.GrantedByType == "user" && grant.GrantedByID == consent.userID
 	certified := grant.CertID != nil && *grant.CertID == certificate.CertID
 	if !targetsInstall || !grantedByUser || !certified {
-		return errInvalidPayload
+		return store.AccessGrant{}, errInvalidPayload
 	}
 	if node.OwnerID != consent.userID || node.Epoch != grant.Epoch || !roleAllowed(roles[node.Collection], grant.Role) {
-		return errInvalidPayload
+		return store.AccessGrant{}, errInvalidPayload
 	}
-	return verifyGrantSignature(grant, consent.signPub)
+	return verifiedGrantEntry(grant, consent.signPub, consent.now)
 }
 
 // roleAllowed reports whether a grant role fits within the scope's role.

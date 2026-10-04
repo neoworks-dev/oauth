@@ -1,7 +1,7 @@
 // Resolves the node keys the owner can reach and describes the tree for the
 // consent screen. Pure functions: no DOM and no network.
 
-import { ROOT_COLLECTIONS, createGrant, decryptFacet, unwrapNodeKey } from "./nw-nodes.js";
+import { ROOT_COLLECTIONS, createGrant, decryptFacet, nextLogPosition, unwrapNodeKey } from "./nw-nodes.js";
 import { decodeBase64Url, sealOpen } from "./nw-primitives.js";
 
 function readName(node, nodeKey) {
@@ -120,8 +120,9 @@ export function selectedNodeIds(collectionTree, selection) {
   return [...selection.nodeIds];
 }
 
-// buildInstallGrants creates one signed install grant per selected node.
-export function buildInstallGrants({ selections, collectionTrees, roles, index, install, granter, certId }) {
+// buildInstallGrants creates one signed install grant per selected node, each
+// extending that node's access log head.
+export function buildInstallGrants({ selections, collectionTrees, roles, index, heads, install, granter, certId }) {
   const grants = [];
   for (const [collection, selection] of Object.entries(selections)) {
     for (const nodeId of selectedNodeIds(collectionTrees[collection], selection)) {
@@ -129,7 +130,7 @@ export function buildInstallGrants({ selections, collectionTrees, roles, index, 
       grants.push(createGrant({
         nodeId, nodeKey: entry.key, epoch: entry.node.epoch, role: roles[collection],
         principalType: "install", principalId: install.id, principalEncPub: decodeBase64Url(install.encPub),
-        granter, certId,
+        granter, certId, position: nextLogPosition(heads[nodeId]),
       }));
     }
   }

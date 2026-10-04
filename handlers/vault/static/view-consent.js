@@ -1,7 +1,7 @@
 // Consent: the user chooses which parts of their account an app installation
 // may read, and the vault wraps the matching keys to the install.
 
-import { describeError, getJson, postJson } from "./nw-api.js";
+import { ApiError, describeError, getJson, postJson } from "./nw-api.js";
 import { buildCertificate } from "./nw-nodes.js";
 import { buildInstallGrants, buildKeyIndex, describeCollections } from "./nw-consent-tree.js";
 import { errorBox, h, withBusy } from "./nw-dom.js";
@@ -49,35 +49,62 @@ function nonEmptySelections(selections) {
   return kept;
 }
 
-async function submitApproval(context, plan) {
+const CONSENT_ATTEMPTS = 3;
+
+function consentBody(context, plan) {
   const { challenge, identity, userId } = plan;
   const selections = nonEmptySelections(plan.selections);
   const scopes = approvedScopesFor(challenge, selections);
   const body = { loginChallenge: context.challengeId, scopes };
-  if (challenge.install && identity !== null) {
-    const certificate = buildCertificate({
-      userId, clientId: challenge.clientId, install: challenge.install, scopes,
-      signSec: identity.signSec, lifetimeMs: CERTIFICATE_LIFETIME_MS,
-    });
-    body.certificate = certificate.certificate;
-    body.certificateSignature = certificate.certificateSignature;
-    body.grants = buildInstallGrants({
-      selections, collectionTrees: plan.collectionTrees, roles: collectionRoles(scopes), index: plan.index,
-      install: challenge.install, granter: { userId, signSec: identity.signSec }, certId: certificate.certId,
-    });
+  if (!challenge.install || identity === null) {
+    return body;
   }
-  const result = await postJson("/vault/consent", body);
+  const certificate = buildCertificate({
+    userId, clientId: challenge.clientId, install: challenge.install, scopes,
+    signSec: identity.signSec, lifetimeMs: CERTIFICATE_LIFETIME_MS,
+  });
+  body.certificate = certificate.certificate;
+  body.certificateSignature = certificate.certificateSignature;
+  body.grants = buildInstallGrants({
+    selections, collectionTrees: plan.collectionTrees, roles: collectionRoles(scopes), index: plan.index,
+    heads: plan.heads, install: challenge.install, granter: { userId, signSec: identity.signSec },
+    certId: certificate.certId,
+  });
+  return body;
+}
+
+// submitApproval posts the consent. When another writer extended an access log
+// first, it re-reads the heads and signs the grants again.
+async function submitApproval(context, plan) {
+  for (let attempt = 1; attempt < CONSENT_ATTEMPTS; attempt += 1) {
+    try {
+      return await postConsent(context, plan);
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.code !== "log_head_moved") {
+        throw error;
+      }
+      plan.heads = (await getJson("/vault/tree")).heads;
+    }
+  }
+  return postConsent(context, plan);
+}
+
+async function postConsent(context, plan) {
+  const result = await postJson("/vault/consent", consentBody(context, plan));
   window.location.assign(result.redirect);
 }
 
 async function loadPlan(context) {
   const challenge = context.challenge;
-  const plan = { challenge, identity: null, userId: context.session.userId, collectionTrees: {}, index: new Map(), selections: {} };
+  const plan = {
+    challenge, identity: null, userId: context.session.userId, collectionTrees: {}, index: new Map(), heads: {}, selections: {},
+  };
   if (challenge.install && Object.keys(collectionRoles(challenge.scopes)).length > 0) {
     const unlocked = requireUnlocked();
     plan.identity = unlocked.identity;
     const tree = await getJson("/vault/tree");
     plan.index = buildKeyIndex(tree, unlocked.identity);
+    plan.heads = tree.heads;
     plan.collectionTrees = describeCollections(tree, plan.index);
     plan.selections = wholeSelections(plan.collectionTrees, collectionRoles(challenge.scopes));
   }

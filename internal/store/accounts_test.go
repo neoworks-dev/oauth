@@ -16,8 +16,9 @@ func sampleAccount(userID, email string) NewAccount {
 		AuthorType: "user", AuthorID: userID, Signature: "c2ln", CreatedAt: now, UpdatedAt: now,
 	}
 	ownerGrant := AccessGrant{
-		NodeID: rootNode.ID, PrincipalType: "user", PrincipalID: userID, Role: "admin", Epoch: 1,
+		NodeID: rootNode.ID, PrincipalType: "user", PrincipalID: userID, Role: "write", Epoch: 1,
 		WrappedKeys: "d3JhcHBlZA", GrantedByType: "user", GrantedByID: userID, Signature: "c2ln", CreatedAt: now,
+		PrevHash: "AAAA", EntryHash: "aGFzaA", WrappedKeysHash: "a2V5cw",
 	}
 	return NewAccount{
 		UserID: userID, Email: email, FirstName: "Ada", LastName: "Lovelace", AuthHash: "hash",
@@ -57,7 +58,7 @@ func TestCreateAccountRoundTrip(t *testing.T) {
 		t.Fatalf("unexpected structure %+v err %v", structure, err)
 	}
 	grants, err := db.ListOwnerGrants(ctx, "user-roundtrip")
-	if err != nil || len(grants) != 1 || grants[0].Role != "admin" {
+	if err != nil || len(grants) != 1 || grants[0].Role != "write" {
 		t.Fatalf("unexpected grants %+v err %v", grants, err)
 	}
 }

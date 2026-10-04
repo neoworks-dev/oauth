@@ -48,12 +48,17 @@ type AccessGrant struct {
 	GrantedByID   string     `json:"granted_by_id"`
 	CertID        string     `json:"cert_id"`
 	Signature     string     `json:"signature"`
+	LogIndex      uint64     `json:"log_index"`
 	CreatedAt     time.Time  `json:"created_at"`
 	RevokedAt     *time.Time `json:"revoked_at"`
+	// The grant's access log entry; written to access_log, not access_grant.
+	PrevHash        string `json:"-"`
+	EntryHash       string `json:"-"`
+	WrappedKeysHash string `json:"-"`
 }
 
 const accessGrantColumns = `node_id, principal_type, principal_id, role, facets, epoch,
-	wrapped_keys, granted_by_type, granted_by_id, cert_id, signature, created_at, revoked_at`
+	wrapped_keys, granted_by_type, granted_by_id, cert_id, signature, log_index, created_at, revoked_at`
 
 func accessGrantFields(grant AccessGrant) map[string]any {
 	fields := map[string]any{
@@ -66,6 +71,7 @@ func accessGrantFields(grant AccessGrant) map[string]any {
 		"granted_by_type": grant.GrantedByType,
 		"granted_by_id":   grant.GrantedByID,
 		"signature":       grant.Signature,
+		"log_index":       grant.LogIndex,
 		"created_at":      grant.CreatedAt,
 	}
 	if grant.Facets != nil {
@@ -77,10 +83,55 @@ func accessGrantFields(grant AccessGrant) map[string]any {
 	return fields
 }
 
-func accessLogFields(grant AccessGrant, action string) map[string]any {
-	fields := accessGrantFields(grant)
-	fields["action"] = action
+// accessLogFields is the access_log entry that made the grant.
+func accessLogFields(grant AccessGrant) map[string]any {
+	fields := map[string]any{
+		"node_id":           grant.NodeID,
+		"index":             grant.LogIndex,
+		"prev_hash":         grant.PrevHash,
+		"entry_hash":        grant.EntryHash,
+		"action":            "grant",
+		"principal_type":    grant.PrincipalType,
+		"principal_id":      grant.PrincipalID,
+		"role":              grant.Role,
+		"epoch":             grant.Epoch,
+		"wrapped_keys_hash": grant.WrappedKeysHash,
+		"actor_type":        grant.GrantedByType,
+		"actor_id":          grant.GrantedByID,
+		"signature":         grant.Signature,
+	}
+	if grant.Facets != nil {
+		fields["facets"] = grant.Facets
+	}
+	if grant.CertID != "" {
+		fields["cert_id"] = grant.CertID
+	}
 	return fields
+}
+
+// LogHead is the newest entry of a node's access log.
+type LogHead struct {
+	NodeID    string `json:"node_id"`
+	Index     uint64 `json:"index"`
+	EntryHash string `json:"entry_hash"`
+}
+
+// ListLogHeads returns the newest access log entry of each node that has one.
+func (store *Store) ListLogHeads(ctx context.Context, nodeIDs []string) (map[string]LogHead, error) {
+	entries, err := rows[LogHead](ctx, store, `
+		SELECT node_id, index, entry_hash FROM access_log
+		WHERE node_id IN $node_ids ORDER BY index DESC`,
+		map[string]any{"node_ids": nodeIDs})
+	if err != nil {
+		return nil, err
+	}
+	heads := map[string]LogHead{}
+	for _, entry := range entries {
+		if _, seen := heads[entry.NodeID]; !seen {
+			heads[entry.NodeID] = entry
+		}
+	}
+	return heads, nil
 }
 
 // InstallConsent is everything a consent writes: the install, its delegation
@@ -99,7 +150,7 @@ func (store *Store) SaveInstallConsent(ctx context.Context, consent InstallConse
 	logRows := make([]map[string]any, 0, len(consent.Grants))
 	for _, grant := range consent.Grants {
 		grantRows = append(grantRows, accessGrantFields(grant))
-		logRows = append(logRows, accessLogFields(grant, "grant"))
+		logRows = append(logRows, accessLogFields(grant))
 	}
 	return execute(ctx, store, `
 		BEGIN TRANSACTION;

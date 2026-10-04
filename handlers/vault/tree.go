@@ -23,9 +23,14 @@ type ownerGrantView struct {
 	WrappedKeys string `json:"wrappedKeys"`
 }
 
-// handleTree returns the user's root and container nodes and the owner grants
-// that unlock the roots, which is what the consent screen needs to offer
-// narrower selections.
+type logHeadView struct {
+	Index     uint64 `json:"index"`
+	EntryHash string `json:"entryHash"`
+}
+
+// handleTree returns the user's root and container nodes, the owner grants
+// that unlock the roots and each node's access log head, which is what the
+// consent screen needs to offer narrower selections and sign install grants.
 func (server *Server) handleTree(response http.ResponseWriter, request *http.Request) {
 	userID := sessionFrom(request).Session.UserID
 	nodes, err := server.store.ListStructure(request.Context(), userID)
@@ -38,10 +43,32 @@ func (server *Server) handleTree(response http.ResponseWriter, request *http.Req
 		writeError(response, http.StatusInternalServerError, "server_error")
 		return
 	}
+	heads, err := server.store.ListLogHeads(request.Context(), nodeIDsOf(nodes))
+	if err != nil {
+		writeError(response, http.StatusInternalServerError, "server_error")
+		return
+	}
 	writeJSON(response, http.StatusOK, map[string]any{
 		"nodes":  treeNodeViews(nodes),
 		"grants": ownerGrantViews(grants),
+		"heads":  logHeadViews(heads),
 	})
+}
+
+func nodeIDsOf(nodes []store.Node) []string {
+	nodeIDs := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		nodeIDs = append(nodeIDs, node.ID)
+	}
+	return nodeIDs
+}
+
+func logHeadViews(heads map[string]store.LogHead) map[string]logHeadView {
+	views := make(map[string]logHeadView, len(heads))
+	for nodeID, head := range heads {
+		views[nodeID] = logHeadView{Index: head.Index, EntryHash: head.EntryHash}
+	}
+	return views
 }
 
 func treeNodeViews(nodes []store.Node) []treeNodeView {

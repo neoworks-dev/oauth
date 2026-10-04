@@ -36,6 +36,7 @@ type Store interface {
 	ListStructure(ctx context.Context, userID string) ([]store.Node, error)
 	ListOwnerGrants(ctx context.Context, userID string) ([]store.AccessGrant, error)
 	GetNodeOwnerships(ctx context.Context, nodeIDs []string) ([]store.NodeOwnership, error)
+	ListLogHeads(ctx context.Context, nodeIDs []string) (map[string]store.LogHead, error)
 }
 
 // State is the Redis slice the vault needs.

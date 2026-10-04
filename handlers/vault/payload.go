@@ -44,6 +44,8 @@ type nodePayload struct {
 }
 
 // grantPayload is an access grant as the client sends it (contract section 5).
+// Signature is the signature of the grant's access log entry, which sits at
+// LogIndex and chains to PrevHash (contract amendment 1).
 type grantPayload struct {
 	NodeID        string   `json:"nodeId"`
 	PrincipalType string   `json:"principalType"`
@@ -56,6 +58,8 @@ type grantPayload struct {
 	GrantedByID   string   `json:"grantedById"`
 	CertID        *string  `json:"certId"`
 	Signature     string   `json:"signature"`
+	LogIndex      uint64   `json:"logIndex"`
+	PrevHash      string   `json:"prevHash"`
 }
 
 // bundlePayload is the key bundle as the client sends it.
@@ -127,30 +131,52 @@ func wrappedKeyCount(facets []uint32) int {
 	return len(facets)
 }
 
-// verifyGrantSignature checks the structure of a grant's sealed keys and the
-// granter's signature over it.
-func verifyGrantSignature(grant grantPayload, signPub []byte) error {
+// verifiedGrantEntry checks the structure of a grant's sealed keys and the
+// granter's signature over the grant's access log entry, and returns the
+// stored form of the grant with its entry hash.
+func verifiedGrantEntry(grant grantPayload, signPub []byte, now time.Time) (store.AccessGrant, error) {
 	wrappedKeys, err := decodeSized(grant.WrappedKeys, sealOverhead+nodeKeyBytes*wrappedKeyCount(grant.Facets))
 	if err != nil {
-		return err
+		return store.AccessGrant{}, err
 	}
 	signature, err := decodeSized(grant.Signature, signatureBytes)
 	if err != nil {
-		return err
+		return store.AccessGrant{}, err
 	}
-	message := wire.AccessGrantMessage{
-		NodeID:        grant.NodeID,
-		PrincipalType: grant.PrincipalType,
-		PrincipalID:   grant.PrincipalID,
-		Role:          grant.Role,
-		Facets:        grant.Facets,
-		Epoch:         grant.Epoch,
-		WrappedKeys:   wrappedKeys,
+	prevHash, err := decodeSized(grant.PrevHash, len(wire.GenesisPrevHash))
+	if err != nil {
+		return store.AccessGrant{}, err
 	}
-	if !wire.Verify(signPub, message.Bytes(), signature) {
-		return errInvalidPayload
+	entry := grant.entryMessage(prevHash, wire.Hash(wrappedKeys))
+	entryBytes := entry.Bytes()
+	if !wire.Verify(signPub, entryBytes, signature) {
+		return store.AccessGrant{}, errInvalidPayload
 	}
-	return nil
+	stored := grant.toStored(now)
+	stored.WrappedKeysHash = wire.EncodeBase64URL(entry.WrappedKeysHash)
+	stored.EntryHash = wire.EncodeBase64URL(wire.Hash(entryBytes))
+	return stored, nil
+}
+
+func (grant grantPayload) entryMessage(prevHash, wrappedKeysHash []byte) wire.AccessEntryMessage {
+	entry := wire.AccessEntryMessage{
+		NodeID:          grant.NodeID,
+		Index:           grant.LogIndex,
+		PrevHash:        prevHash,
+		Action:          "grant",
+		PrincipalType:   grant.PrincipalType,
+		PrincipalID:     grant.PrincipalID,
+		Role:            grant.Role,
+		Facets:          grant.Facets,
+		Epoch:           grant.Epoch,
+		WrappedKeysHash: wrappedKeysHash,
+		ActorType:       grant.GrantedByType,
+		ActorID:         grant.GrantedByID,
+	}
+	if grant.CertID != nil {
+		entry.CertID = *grant.CertID
+	}
+	return entry
 }
 
 func (grant grantPayload) toStored(now time.Time) store.AccessGrant {
@@ -165,6 +191,8 @@ func (grant grantPayload) toStored(now time.Time) store.AccessGrant {
 		GrantedByType: grant.GrantedByType,
 		GrantedByID:   grant.GrantedByID,
 		Signature:     grant.Signature,
+		LogIndex:      grant.LogIndex,
+		PrevHash:      grant.PrevHash,
 		CreatedAt:     now,
 	}
 	if grant.CertID != nil {

@@ -32,10 +32,10 @@ function ownerTree() {
     treeNodes.push(node);
     keys[collection] = nodeKey;
     const grant = nodes.createGrant({
-      nodeId: node.id, nodeKey, epoch: 1, role: "admin", principalType: "user", principalId: userId,
-      principalEncPub: identity.encPub, granter: { userId, signSec: identity.signSec },
+      nodeId: node.id, nodeKey, epoch: 1, role: "write", principalType: "user", principalId: userId,
+      principalEncPub: identity.encPub, granter: { userId, signSec: identity.signSec }, position: nodes.nextLogPosition(null),
     });
-    grants.push({ nodeId: node.id, role: "admin", epoch: 1, wrappedKeys: grant.wrappedKeys });
+    grants.push({ nodeId: node.id, role: "write", epoch: 1, wrappedKeys: grant.wrappedKeys });
   }
   const calendarRoot = treeNodes.find((node) => node.collection === "calendar");
   const work = container("Work", calendarRoot, keys.calendar, userId);
@@ -61,7 +61,7 @@ describe("consent tree", () => {
   test("opens root keys with the identity and walks down to nested containers", () => {
     const owned = ownerTree();
     const index = tree.buildKeyIndex(owned.tree, owned.identity);
-    expect(index.size).toBe(6);
+    expect(index.size).toBe(nodes.ROOT_COLLECTIONS.length + 2);
     expect(Buffer.from(index.get(owned.nested.node.id).key).equals(Buffer.from(owned.nested.key))).toBe(true);
   });
 
@@ -69,7 +69,7 @@ describe("consent tree", () => {
     const owned = ownerTree();
     const index = tree.buildKeyIndex(owned.tree, owned.identity);
     const described = tree.describeCollections(owned.tree, index);
-    expect(Object.keys(described).sort()).toEqual(["calendar", "contacts", "files", "photos"]);
+    expect(Object.keys(described).sort()).toEqual(["calendar", "contacts", "files", "google", "photos"]);
     expect(described.calendar.root.name).toBe("Calendar");
     expect(described.calendar.containers.map((entry: any) => [entry.name, entry.depth])).toEqual([["Work", 1], ["Projects", 2]]);
   });
@@ -87,12 +87,28 @@ describe("consent tree", () => {
     const install = { id: "install-1", encPub: primitives.encodeBase64Url(primitives.boxKeypair().publicKey) };
     const grants = tree.buildInstallGrants({
       selections: { calendar: { whole: true, nodeIds: new Set() } }, collectionTrees, roles: { calendar: "write" },
-      index, install, granter: { userId: "user-1", signSec: owned.identity.signSec }, certId: "cert-1",
+      index, heads: {}, install, granter: { userId: "user-1", signSec: owned.identity.signSec }, certId: "cert-1",
     });
     expect(grants.length).toBe(1);
     expect(grants[0].nodeId).toBe(owned.calendarRoot.id);
     expect(grants[0].role).toBe("write");
     expect(grants[0].principalId).toBe("install-1");
+    expect(grants[0].logIndex).toBe(0);
+  });
+
+  test("install grants extend each node's access log head", () => {
+    const owned = ownerTree();
+    const index = tree.buildKeyIndex(owned.tree, owned.identity);
+    const collectionTrees = tree.describeCollections(owned.tree, index);
+    const install = { id: "install-1", encPub: primitives.encodeBase64Url(primitives.boxKeypair().publicKey) };
+    const headHash = primitives.encodeBase64Url(primitives.randomBytes(32));
+    const grants = tree.buildInstallGrants({
+      selections: { calendar: { whole: true, nodeIds: new Set() } }, collectionTrees, roles: { calendar: "read" },
+      index, heads: { [owned.calendarRoot.id]: { index: 0, entryHash: headHash } }, install,
+      granter: { userId: "user-1", signSec: owned.identity.signSec }, certId: "cert-1",
+    });
+    expect(grants[0].logIndex).toBe(1);
+    expect(grants[0].prevHash).toBe(headHash);
   });
 
   test("narrowed selection grants only the chosen containers", () => {
@@ -102,7 +118,7 @@ describe("consent tree", () => {
     const install = { id: "install-1", encPub: primitives.encodeBase64Url(primitives.boxKeypair().publicKey) };
     const grants = tree.buildInstallGrants({
       selections: { calendar: { whole: false, nodeIds: new Set([owned.work.node.id]) } }, collectionTrees,
-      roles: { calendar: "read" }, index, install,
+      roles: { calendar: "read" }, index, heads: {}, install,
       granter: { userId: "user-1", signSec: owned.identity.signSec }, certId: "cert-1",
     });
     expect(grants.map((grant: any) => grant.nodeId)).toEqual([owned.work.node.id]);

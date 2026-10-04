@@ -6,8 +6,10 @@ import {
 } from "./nw-primitives.js";
 
 const FACET_CONTEXT = "nwfacet1";
-export const ROOT_COLLECTIONS = ["calendar", "contacts", "photos", "files"];
-export const ROOT_NAMES = { calendar: "Calendar", contacts: "Contacts", photos: "Photos", files: "Files" };
+export const ROOT_COLLECTIONS = ["calendar", "contacts", "photos", "files", "google"];
+export const ROOT_NAMES = {
+  calendar: "Calendar", contacts: "Contacts", photos: "Photos", files: "Files", google: "Google account",
+};
 
 export function facetKey(nodeKey, facet) {
   return kdf(nodeKey, facet, FACET_CONTEXT);
@@ -109,25 +111,51 @@ export function facetsCsv(facets) {
   return facets.join(",");
 }
 
-export function grantMessage({ nodeId, principalType, principalId, role, facets, epoch, wrappedKeys }) {
-  return tlv("nw-access-v1", fieldString(nodeId), fieldString(principalType), fieldString(principalId),
-    fieldString(role), fieldString(facetsCsv(facets)), fieldU32(epoch), hash(wrappedKeys));
+// GENESIS_PREV_HASH is the prevHash of a chain's entry 0.
+export const GENESIS_PREV_HASH = new Uint8Array(32);
+
+// accessEntryBytes is what an access log entry's actor signs and what its
+// hash covers (contract amendment 1).
+export function accessEntryBytes(entry) {
+  let certId = "";
+  if (entry.certId) {
+    certId = entry.certId;
+  }
+  return tlv("nw-access-entry-v1", fieldString(entry.nodeId), fieldU64(entry.index), entry.prevHash,
+    fieldString(entry.action), fieldString(entry.principalType), fieldString(entry.principalId),
+    fieldString(entry.role), fieldString(facetsCsv(entry.facets)), fieldU32(entry.epoch), entry.wrappedKeysHash,
+    fieldString(entry.actorType), fieldString(entry.actorId), fieldString(certId));
+}
+
+// nextLogPosition is where the next entry of a node's access log goes, given
+// the head the server reported for it ({ index, entryHash }) or none.
+export function nextLogPosition(head) {
+  if (!head) {
+    return { index: 0, prevHash: GENESIS_PREV_HASH };
+  }
+  return { index: head.index + 1, prevHash: decodeBase64Url(head.entryHash) };
 }
 
 // createGrant seals a node key to a principal's encryption key and signs the
-// grant with the granter's signing key.
-export function createGrant({ nodeId, nodeKey, epoch, role, principalType, principalId, principalEncPub, granter, certId }) {
+// grant's access log entry at the given chain position with the granter's
+// signing key. A grant to an install names the install's certificate.
+export function createGrant({ nodeId, nodeKey, epoch, role, principalType, principalId, principalEncPub, granter, certId, position }) {
   const wrappedKeys = seal(principalEncPub, nodeKey);
   const grant = {
     nodeId, principalType, principalId, role, facets: null, epoch,
     wrappedKeys: encodeBase64Url(wrappedKeys),
     grantedByType: "user", grantedById: granter.userId, certId: null,
+    logIndex: position.index, prevHash: encodeBase64Url(position.prevHash),
   };
   if (certId) {
     grant.certId = certId;
   }
-  const message = grantMessage({ ...grant, wrappedKeys });
-  grant.signature = encodeBase64Url(sign(granter.signSec, message));
+  const entryBytes = accessEntryBytes({
+    nodeId, index: position.index, prevHash: position.prevHash, action: "grant", principalType, principalId,
+    role, facets: null, epoch, wrappedKeysHash: hash(wrappedKeys), actorType: "user", actorId: granter.userId,
+    certId: grant.certId,
+  });
+  grant.signature = encodeBase64Url(sign(granter.signSec, entryBytes));
   return grant;
 }
 

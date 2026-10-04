@@ -26,14 +26,17 @@ func TestInstallConsentRoundTrip(t *testing.T) {
 		Install:     Install{ID: "install-1", UserID: "user-i", ClientID: "photos", EncPub: "ZW5j", SignPub: "c2ln", Name: "Photos", CreatedAt: now},
 		Certificate: Certificate{ID: "cert-1", Bytes: "Ynl0ZXM", Signature: "c2ln"},
 		Grants: []AccessGrant{
-			{NodeID: "root-user-i", PrincipalType: "install", PrincipalID: "install-1", Role: "read", Epoch: 1, WrappedKeys: "d3Jh", GrantedByType: "user", GrantedByID: "user-i", CertID: "cert-1", Signature: "c2ln", CreatedAt: now},
-			{NodeID: "node-b", PrincipalType: "install", PrincipalID: "install-1", Role: "write", Facets: []uint32{0, 1}, Epoch: 2, WrappedKeys: "d3Jh", GrantedByType: "user", GrantedByID: "user-i", CertID: "cert-1", Signature: "c2ln", CreatedAt: now},
+			{NodeID: "root-user-i", PrincipalType: "install", PrincipalID: "install-1", Role: "read", Epoch: 1, WrappedKeys: "d3Jh", GrantedByType: "user", GrantedByID: "user-i", CertID: "cert-1", Signature: "c2ln", LogIndex: 1, CreatedAt: now, PrevHash: "AAAA", EntryHash: "aGFzaA", WrappedKeysHash: "a2V5cw"},
+			{NodeID: "node-b", PrincipalType: "install", PrincipalID: "install-1", Role: "write", Facets: []uint32{0, 1}, Epoch: 2, WrappedKeys: "d3Jh", GrantedByType: "user", GrantedByID: "user-i", CertID: "cert-1", Signature: "c2ln", LogIndex: 1, CreatedAt: now, PrevHash: "AAAA", EntryHash: "aGFzaA", WrappedKeysHash: "a2V5cw"},
 		},
 	}
 	if err := db.SaveInstallConsent(ctx, consent); err != nil {
 		t.Fatalf("save consent: %v", err)
 	}
 	consent.Certificate.ID = "cert-2"
+	for index := range consent.Grants {
+		consent.Grants[index].LogIndex = 2
+	}
 	if err := db.SaveInstallConsent(ctx, consent); err != nil {
 		t.Fatalf("saving again must replace grants: %v", err)
 	}

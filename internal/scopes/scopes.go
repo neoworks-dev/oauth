@@ -6,8 +6,9 @@ import (
 	"strings"
 )
 
-// Collections are the data collections an app can be granted access to.
-var Collections = []string{"calendar", "contacts", "photos", "files"}
+// Collections are the data collections an app can be granted access to. The
+// google collection holds the linked Google account's tokens.
+var Collections = []string{"calendar", "contacts", "photos", "files", "google"}
 
 var identityScopes = []string{"openid", "profile", "email"}
 

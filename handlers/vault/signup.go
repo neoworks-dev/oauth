@@ -8,6 +8,7 @@ import (
 	"github.com/neoworks/oauth/internal/ids"
 	"github.com/neoworks/oauth/internal/scopes"
 	"github.com/neoworks/oauth/internal/store"
+	"github.com/neoworks/oauth/internal/wire"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -195,7 +196,8 @@ func storedBundle(userID string, bundle bundlePayload, params pwhashParams) stor
 	}
 }
 
-// buildRootTree checks the four root nodes and the owner's admin grant on each.
+// buildRootTree checks the root nodes and the owner's grant on each, which is
+// entry 0 of the root's access log.
 func buildRootTree(body signupRequest, signPub []byte, now time.Time) ([]store.Node, []store.AccessGrant, error) {
 	if len(body.Nodes) != len(scopes.Collections) || len(body.Grants) != len(scopes.Collections) {
 		return nil, nil, errInvalidPayload
@@ -280,13 +282,14 @@ func ownerGrant(userID string, node store.Node, grants []grantPayload, signPub [
 }
 
 func checkedOwnerGrant(userID string, node store.Node, grant grantPayload, signPub []byte, now time.Time) (store.AccessGrant, error) {
-	isOwnerAdmin := grant.PrincipalType == "user" && grant.PrincipalID == userID && grant.Role == "admin"
+	isOwnerWrite := grant.PrincipalType == "user" && grant.PrincipalID == userID && grant.Role == "write"
 	isSelfGranted := grant.GrantedByType == "user" && grant.GrantedByID == userID
-	if !isOwnerAdmin || !isSelfGranted || grant.Facets != nil || grant.CertID != nil || grant.Epoch != node.Epoch {
+	if !isOwnerWrite || !isSelfGranted || grant.Facets != nil || grant.CertID != nil || grant.Epoch != node.Epoch {
 		return store.AccessGrant{}, errInvalidPayload
 	}
-	if err := verifyGrantSignature(grant, signPub); err != nil {
-		return store.AccessGrant{}, err
+	isGenesis := grant.LogIndex == 0 && grant.PrevHash == wire.EncodeBase64URL(wire.GenesisPrevHash)
+	if !isGenesis {
+		return store.AccessGrant{}, errInvalidPayload
 	}
-	return grant.toStored(now), nil
+	return verifiedGrantEntry(grant, signPub, now)
 }

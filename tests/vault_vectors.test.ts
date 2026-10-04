@@ -140,10 +140,23 @@ run("contract vectors", () => {
     expect(v.facetGrant.facetsCsv).toBe("1");
   });
 
-  // Contract amendment 1 replaced the grant signature with access log entries
-  // (nw-access-entry-v1). The vault still signs the earlier nw-access-v1 grant
-  // message, so this stays pending until the entry construction is implemented.
-  test.todo("access log entries are reproduced (contract amendment 1)");
+  test("access log entries are reproduced (contract amendment 1)", () => {
+    const v = vectors.accessLog;
+    for (const { entryJson, entryBytesHex, entryHashHex, signatureHex } of v.entries) {
+      const entryBytes = nodes.accessEntryBytes({
+        ...entryJson,
+        prevHash: primitives.decodeBase64Url(entryJson.prevHash),
+        wrappedKeysHash: primitives.decodeBase64Url(entryJson.wrappedKeysHash),
+      });
+      expect(hex(entryBytes)).toBe(entryBytesHex);
+      expect(hex(primitives.hash(entryBytes))).toBe(entryHashHex);
+      let signSec = v.ownerSignSecHex;
+      if (entryJson.actorType === "install") {
+        signSec = v.installSignSecHex;
+      }
+      expect(hex(primitives.sign(fromHex(signSec), entryBytes))).toBe(signatureHex);
+    }
+  });
 
   test("delegation signature covers the exact certificate bytes", () => {
     const v = vectors.delegation;
