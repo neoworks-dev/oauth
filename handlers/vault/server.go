@@ -28,7 +28,7 @@ type Store interface {
 	CreateAccount(ctx context.Context, account store.NewAccount) error
 	ChangePassword(ctx context.Context, change store.PasswordChange) error
 	RotateBundle(ctx context.Context, rotation store.Rotation) error
-	CompleteRotation(ctx context.Context, userID string, version uint32) error
+	CompleteRotation(ctx context.Context, userID string, bundleVersion uint32, link store.IdentityLink) error
 	SetEscrowEnabled(ctx context.Context, userID string, enabled bool) error
 	RegisterDevice(ctx context.Context, userID, deviceID, name, kind string) error
 	IsDeviceActive(ctx context.Context, userID, deviceID string) (bool, error)

@@ -2,7 +2,7 @@
 // rotation. Each one re-derives keys from the password the user just typed.
 
 import {
-  buildBundle, createIdentity, derivePasswordKeys, deriveRecoveryKek, newPwhashParams, unwrapAmk, wrapAmk,
+  buildBundle, createIdentity, derivePasswordKeys, deriveRecoveryKek, newPwhashParams, signRotation, unwrapAmk, wrapAmk,
 } from "./nw-account.js";
 import { ApiError, callApi, getJson, postJson } from "./nw-api.js";
 import { previousIdentityPayload, resealOwnGrants } from "./nw-rotation.js";
@@ -123,7 +123,10 @@ export async function finishRotation(apiUrl, password) {
   const bundle = await getJson("/vault/bundle");
   const authKey = proveCurrentPassword(bundle, userId, password);
   await resealWithRetries(apiUrl, userId, previousIdentity, identity);
-  await postJson("/vault/rotate/complete", { currentAuthKey: encodeBase64Url(authKey), version: bundle.version });
+  const rotationSig = signRotation({ previousIdentity, identity, userId, identityVersion: bundle.identityVersion });
+  await postJson("/vault/rotate/complete", {
+    currentAuthKey: encodeBase64Url(authKey), version: bundle.version, rotationSig: encodeBase64Url(rotationSig),
+  });
   wipe(authKey);
   unlock(requireUnlocked().amk, await getJson("/vault/bundle"));
 }

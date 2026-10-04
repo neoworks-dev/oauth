@@ -46,6 +46,7 @@ func (store *Store) CreateAccount(ctx context.Context, account NewAccount) error
 			auth_hash: $auth_hash, escrow_enabled: $escrow_enabled, created_at: $now
 		};
 		CREATE key_bundle CONTENT $bundle;
+		CREATE identity_key SET user = $user_id, version = 1, sign_pub = $sign_pub, enc_pub = $enc_pub;
 		CREATE $device_id CONTENT {
 			user: $user_id, name: $device_name, kind: $device_kind,
 			created_at: $now, last_seen_at: $now
@@ -63,6 +64,8 @@ func (store *Store) CreateAccount(ctx context.Context, account NewAccount) error
 			"escrow_enabled": account.EscrowEnabled,
 			"now":            now,
 			"bundle":         bundle,
+			"sign_pub":       account.Bundle.SignPub,
+			"enc_pub":        account.Bundle.EncPub,
 			"device_id":      recordID("device", account.Device.ID),
 			"device_name":    account.Device.Name,
 			"device_kind":    account.Device.Kind,

@@ -1,7 +1,12 @@
 package vault
 
 import (
+	"context"
 	"testing"
+	"time"
+
+	surrealdb "github.com/surrealdb/surrealdb.go"
+	"github.com/surrealdb/surrealdb.go/pkg/models"
 
 	"github.com/neoworks/oauth/internal/testsupport"
 	"github.com/neoworks/oauth/internal/wire"
@@ -89,7 +94,9 @@ func TestFullRotationKeepsThePreviousIdentityUntilCompleted(t *testing.T) {
 		t.Fatalf("bundle after a full rotation: %s", bundle.Raw)
 	}
 
-	complete := map[string]any{"currentAuthKey": wire.EncodeBase64URL(newKey), "version": 2}
+	complete := map[string]any{
+		"currentAuthKey": wire.EncodeBase64URL(newKey), "version": 2, "rotationSig": account.RotationSignature(next, 2),
+	}
 	if wrong := vault.browser.Do("POST", "/vault/rotate/complete", map[string]any{"currentAuthKey": account.AuthKeyText(), "version": 2}, nil); wrong.Status != 401 {
 		t.Fatalf("completing with the old authKey: %d, want 401", wrong.Status)
 	}
@@ -100,8 +107,79 @@ func TestFullRotationKeepsThePreviousIdentityUntilCompleted(t *testing.T) {
 		t.Fatalf("complete: %d %s", done.Status, done.Raw)
 	}
 	after := vault.browser.Do("GET", "/vault/bundle", nil, nil)
-	if after.Body["previous"] != nil {
+	if after.Body["previous"] != nil || after.Body["identityVersion"] != float64(2) {
 		t.Fatalf("the previous identity must be gone after completing: %s", after.Raw)
+	}
+}
+
+func TestCompletingAFullRotationAppendsTheIdentityToTheHistory(t *testing.T) {
+	vault, account, next, newKey := rotatedVault(t)
+	before := vault.browser.Do("GET", "/vault/bundle", nil, nil)
+	if before.Body["identityVersion"] != float64(2) {
+		t.Fatalf("an unfinished rotation names the version it will become: %s", before.Raw)
+	}
+	complete := map[string]any{
+		"currentAuthKey": wire.EncodeBase64URL(newKey), "version": 2, "rotationSig": account.RotationSignature(next, 2),
+	}
+	if done := vault.browser.Do("POST", "/vault/rotate/complete", complete, nil); done.Status != 200 {
+		t.Fatalf("complete: %d %s", done.Status, done.Raw)
+	}
+	if again := vault.browser.Do("POST", "/vault/rotate/complete", complete, nil); again.Status != 200 {
+		t.Fatalf("completing twice: %d %s", again.Status, again.Raw)
+	}
+
+	var keys []struct {
+		Version     int        `json:"version"`
+		SignPub     string     `json:"sign_pub"`
+		RotationSig *string    `json:"rotation_sig"`
+		RetiredAt   *time.Time `json:"retired_at"`
+	}
+	results, err := surrealdb.Query[[]struct {
+		Version     int        `json:"version"`
+		SignPub     string     `json:"sign_pub"`
+		RotationSig *string    `json:"rotation_sig"`
+		RetiredAt   *time.Time `json:"retired_at"`
+	}](context.Background(), testSurreal.DB(),
+		"SELECT version, sign_pub, rotation_sig, retired_at FROM identity_key WHERE user = $user ORDER BY version",
+		map[string]any{"user": models.NewRecordID("user", account.UserID)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys = (*results)[0].Result
+	if len(keys) != 2 || keys[0].Version != 1 || keys[1].Version != 2 {
+		t.Fatalf("history: %+v", keys)
+	}
+	if keys[0].RetiredAt == nil || keys[0].RotationSig != nil || keys[1].RetiredAt != nil {
+		t.Fatalf("retirement: %+v", keys)
+	}
+	if keys[1].SignPub != wire.EncodeBase64URL(next.SignPub) || keys[1].RotationSig == nil || *keys[1].RotationSig != complete["rotationSig"] {
+		t.Fatalf("appended version: %+v", keys[1])
+	}
+}
+
+func TestCompletingAFullRotationNeedsTheRotationLink(t *testing.T) {
+	cases := map[string]func(account, next *testsupport.Account) string{
+		"missing":                    func(_, _ *testsupport.Account) string { return "" },
+		"signed by the new identity": func(_, next *testsupport.Account) string { return next.RotationSignature(next, 2) },
+		"for another version":        func(account, next *testsupport.Account) string { return account.RotationSignature(next, 3) },
+		"for another identity": func(account, _ *testsupport.Account) string {
+			return account.RotationSignature(account.WithNewIdentity(), 2)
+		},
+	}
+	for name, signature := range cases {
+		t.Run(name, func(t *testing.T) {
+			vault, account, next, newKey := rotatedVault(t)
+			complete := map[string]any{
+				"currentAuthKey": wire.EncodeBase64URL(newKey), "version": 2, "rotationSig": signature(account, next),
+			}
+			if response := vault.browser.Do("POST", "/vault/rotate/complete", complete, nil); response.Status != 400 {
+				t.Fatalf("status %d (%s), want 400", response.Status, response.Raw)
+			}
+			bundle := vault.browser.Do("GET", "/vault/bundle", nil, nil)
+			if bundle.Body["previous"] == nil {
+				t.Fatalf("a refused completion must keep the previous identity: %s", bundle.Raw)
+			}
+		})
 	}
 }
 

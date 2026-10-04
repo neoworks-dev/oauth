@@ -24,6 +24,9 @@ type KeyBundle struct {
 	// Previous is the identity before an unfinished full rotation, wrapped under
 	// the current AMK. It stays until every key is rewrapped to the new identity.
 	Previous *PreviousIdentity `json:"previous"`
+	// IdentityVersion is the history version of the bundle's identity: the
+	// newest one recorded, or the next one while a full rotation is unfinished.
+	IdentityVersion uint32 `json:"identityVersion"`
 }
 
 // PreviousIdentity is the identity a full rotation replaced.
@@ -76,7 +79,16 @@ func (store *Store) GetKeyBundle(ctx context.Context, userID string) (*KeyBundle
 	if err != nil {
 		return nil, err
 	}
-	return row.toBundle(), nil
+	bundle := row.toBundle()
+	latest, err := store.LatestIdentityKey(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	bundle.IdentityVersion = latest.Version
+	if bundle.Previous != nil {
+		bundle.IdentityVersion = latest.Version + 1
+	}
+	return bundle, nil
 }
 
 func bundleFields(bundle KeyBundle) map[string]any {
@@ -190,17 +202,40 @@ func (store *Store) RotateBundle(ctx context.Context, rotation Rotation) error {
 	return nil
 }
 
+// IdentityLink is the next identity version of a user, with the previous
+// version's signature over its public keys.
+type IdentityLink struct {
+	Version     uint32
+	SignPub     string
+	EncPub      string
+	RotationSig string
+}
+
 // CompleteRotation drops the previous identity once the client rewrapped every
-// key to the new one. It fails with ErrConflict when the bundle moved on.
-func (store *Store) CompleteRotation(ctx context.Context, userID string, version uint32) error {
+// key to the new one, and appends the new identity to the user's key history
+// while retiring the old one. It fails with ErrConflict when the bundle moved
+// on or has no unfinished rotation.
+func (store *Store) CompleteRotation(ctx context.Context, userID string, bundleVersion uint32, link IdentityLink) error {
 	updated, err := transactionRows[keyBundleRow](ctx, store, `
 		BEGIN TRANSACTION;
-		UPDATE key_bundle SET previous_identity_private = NONE, previous_enc_pub = NONE,
-			previous_sign_pub = NONE, updated_at = time::now()
-			WHERE user = $user_record AND version = $version
-			RETURN `+keyBundleColumns+`;
+		LET $completed = IF array::len((SELECT id FROM key_bundle
+				WHERE user = $user_record AND version = $bundle_version AND previous_sign_pub != NONE)) = 1 {
+			UPDATE identity_key SET retired_at = time::now()
+				WHERE user = $user_record AND version = $identity_version - 1;
+			CREATE identity_key SET user = $user_record, version = $identity_version,
+				sign_pub = $sign_pub, enc_pub = $enc_pub, rotation_sig = $rotation_sig;
+			UPDATE key_bundle SET previous_identity_private = NONE, previous_enc_pub = NONE,
+				previous_sign_pub = NONE, updated_at = time::now()
+				WHERE user = $user_record AND version = $bundle_version
+				RETURN `+keyBundleColumns+`
+		} ELSE { [] };
+		RETURN $completed;
 		COMMIT TRANSACTION;`,
-		map[string]any{"user_record": recordID("user", userID), "version": version})
+		map[string]any{
+			"user_record": recordID("user", userID), "bundle_version": bundleVersion,
+			"identity_version": link.Version, "sign_pub": link.SignPub, "enc_pub": link.EncPub,
+			"rotation_sig": link.RotationSig,
+		})
 	if err != nil {
 		return wrapQueryError("complete rotation", err)
 	}

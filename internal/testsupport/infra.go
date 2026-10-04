@@ -22,7 +22,7 @@ import (
 
 // tables are declared schemaless; the real schema belongs to the api migrations.
 var tables = []string{
-	"user", "key_bundle", "device", "client", "refresh_token", "install", "certificate",
+	"user", "key_bundle", "identity_key", "device", "client", "refresh_token", "install", "certificate",
 	"access_grant", "access_log", "node",
 }
 

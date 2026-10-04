@@ -253,6 +253,13 @@ func (account *Account) FullRotationRequest(next *Account, expectedVersion uint3
 	return request
 }
 
+// RotationSignature is this account's identity endorsing next's identity as
+// the given history version.
+func (account *Account) RotationSignature(next *Account, identityVersion uint32) string {
+	message := wire.IdentityRotationMessage(account.UserID, identityVersion, next.SignPub, next.EncPub[:])
+	return wire.EncodeBase64URL(ed25519.Sign(account.SignSec, message))
+}
+
 // RandomKey returns 32 random bytes, for an authKey.
 func RandomKey() []byte {
 	return randomBytes(32)

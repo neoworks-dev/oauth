@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/neoworks/oauth/internal/store"
+	"github.com/neoworks/oauth/internal/wire"
 )
 
 // escrowChange tells a rotation what to do with the escrow wrap: replace it
@@ -189,10 +190,14 @@ func requirePrevious(previous *previousIdentityPayload, encPub, signPub string) 
 type completeRotationRequest struct {
 	CurrentAuthKey string `json:"currentAuthKey"`
 	Version        uint32 `json:"version"`
+	// RotationSig is the previous identity's signature over the new identity
+	// at the next identity version.
+	RotationSig string `json:"rotationSig"`
 }
 
 // handleRotateComplete drops the previous identity once the client has rewrapped
-// every key to the new one.
+// every key to the new one, and appends the new identity to the key history.
+// Completing a rotation that is already complete succeeds.
 func (server *Server) handleRotateComplete(response http.ResponseWriter, request *http.Request) {
 	var body completeRotationRequest
 	if err := readJSON(request, &body); err != nil {
@@ -203,7 +208,25 @@ func (server *Server) handleRotateComplete(response http.ResponseWriter, request
 	if !ok {
 		return
 	}
-	err := server.store.CompleteRotation(request.Context(), user.ID, body.Version)
+	bundle, err := server.store.GetKeyBundle(request.Context(), user.ID)
+	if err != nil {
+		writeError(response, http.StatusInternalServerError, "server_error")
+		return
+	}
+	if bundle.Version != body.Version {
+		writeError(response, http.StatusConflict, "bundle_version_conflict")
+		return
+	}
+	if bundle.Previous == nil {
+		writeJSON(response, http.StatusOK, map[string]bool{"ok": true})
+		return
+	}
+	link, err := verifiedIdentityLink(user.ID, bundle, body.RotationSig)
+	if err != nil {
+		writeError(response, http.StatusBadRequest, "invalid_rotation_sig")
+		return
+	}
+	err = server.store.CompleteRotation(request.Context(), user.ID, body.Version, link)
 	if err == store.ErrConflict {
 		writeError(response, http.StatusConflict, "bundle_version_conflict")
 		return
@@ -213,4 +236,32 @@ func (server *Server) handleRotateComplete(response http.ResponseWriter, request
 		return
 	}
 	writeJSON(response, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// verifiedIdentityLink checks that the replaced identity signed the bundle's
+// identity as the next history version.
+func verifiedIdentityLink(userID string, bundle *store.KeyBundle, rotationSig string) (store.IdentityLink, error) {
+	previousSignPub, err := decodeSized(bundle.Previous.SignPub, publicKeyBytes)
+	if err != nil {
+		return store.IdentityLink{}, err
+	}
+	signPub, err := decodeSized(bundle.SignPub, publicKeyBytes)
+	if err != nil {
+		return store.IdentityLink{}, err
+	}
+	encPub, err := decodeSized(bundle.EncPub, publicKeyBytes)
+	if err != nil {
+		return store.IdentityLink{}, err
+	}
+	signature, err := decodeSized(rotationSig, signatureBytes)
+	if err != nil {
+		return store.IdentityLink{}, err
+	}
+	message := wire.IdentityRotationMessage(userID, bundle.IdentityVersion, signPub, encPub)
+	if !wire.Verify(previousSignPub, message, signature) {
+		return store.IdentityLink{}, errInvalidPayload
+	}
+	return store.IdentityLink{
+		Version: bundle.IdentityVersion, SignPub: bundle.SignPub, EncPub: bundle.EncPub, RotationSig: rotationSig,
+	}, nil
 }

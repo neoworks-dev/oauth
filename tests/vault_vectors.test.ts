@@ -158,6 +158,27 @@ run("contract vectors", () => {
     }
   });
 
+  test("identity rotation links are reproduced (contract amendment 4)", () => {
+    const v = vectors.identityHistory;
+    const keys = v.signSeedStartsHex.map((seed: string) => sodium.crypto_sign_seed_keypair(fromHex(seed)));
+    v.versions.forEach((entry: any, index: number) => {
+      expect(hex(keys[index].publicKey)).toBe(entry.signPubHex);
+    });
+    for (const version of [2, 3]) {
+      const entry = v.versions[version - 1];
+      const signature = account.signRotation({
+        previousIdentity: { signSec: keys[version - 2].privateKey },
+        identity: { signPub: fromHex(entry.signPubHex), encPub: fromHex(entry.encPubHex) },
+        userId: v.userId,
+        identityVersion: version,
+      });
+      expect(hex(signature)).toBe(entry.rotationSigHex);
+      expect(sodium.crypto_sign_verify_detached(signature, primitives.tlv("nw-identity-rotation-v1",
+        primitives.fieldString(v.userId), primitives.fieldU32(version), fromHex(entry.signPubHex), fromHex(entry.encPubHex)),
+        keys[version - 2].publicKey)).toBe(true);
+    }
+  });
+
   test("delegation signature covers the exact certificate bytes", () => {
     const v = vectors.delegation;
     const bytes = fromHex(v.certBytesHex);

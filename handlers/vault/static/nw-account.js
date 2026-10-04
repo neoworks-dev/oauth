@@ -79,6 +79,13 @@ export function signIdentity(identity, userId) {
   return sign(identity.signSec, identityMessage(userId, identity.encPub, identity.signPub));
 }
 
+// signRotation links an identity to the one it replaces: the previous identity
+// endorses the new keys as the given history version.
+export function signRotation({ previousIdentity, identity, userId, identityVersion }) {
+  const message = tlv("nw-identity-rotation-v1", fieldString(userId), fieldU32(identityVersion), identity.signPub, identity.encPub);
+  return sign(previousIdentity.signSec, message);
+}
+
 // buildBundle assembles the key bundle payload a client sends to the server.
 export function buildBundle({ userId, version, amk, identity, passwordKek, recoveryKek }) {
   return {

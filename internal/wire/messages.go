@@ -5,6 +5,12 @@ func IdentityMessage(userID string, encPub, signPub []byte) []byte {
 	return TLV("nw-identity-pub-v1", String(userID), encPub, signPub)
 }
 
+// IdentityRotationMessage is what the previous identity signs to endorse the
+// next identity version.
+func IdentityRotationMessage(userID string, version uint32, signPub, encPub []byte) []byte {
+	return TLV("nw-identity-rotation-v1", String(userID), U32(version), signPub, encPub)
+}
+
 // GenesisPrevHash is the prevHash of a chain's entry 0: 32 zero bytes.
 var GenesisPrevHash = make([]byte, 32)
 
