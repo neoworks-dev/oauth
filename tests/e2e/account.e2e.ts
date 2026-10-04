@@ -7,7 +7,7 @@ test("signup, sign-out, sign-in and a remembered browser", async ({ page }) => {
 
   await signUp(page, account);
   await expect(page.locator("h1")).toHaveText("Your account");
-  expect(account.recoveryWords).toHaveLength(32);
+  expect(account.recoveryWords).toHaveLength(24);
 
   await page.click("#sign-out");
   await expect(page.locator("h1")).toHaveText("Sign in");

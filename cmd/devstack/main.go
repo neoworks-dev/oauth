@@ -89,6 +89,7 @@ func seedClients(surreal *testsupport.Surreal, oauthURL string) {
 	scopes := []string{
 		"openid", "profile", "email", "calendar:read", "calendar:write", "contacts:read", "contacts:write",
 		"photos:read", "photos:write", "files:read", "files:write",
+		"calendar:share",
 	}
 	if err := surreal.CreateClient("e2e-app", redirects, scopes, false); err != nil {
 		log.Fatal(err)

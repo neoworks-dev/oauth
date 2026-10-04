@@ -174,6 +174,9 @@ func checkInitialBundle(body signupRequest) ([]byte, error) {
 	if body.Bundle.Version != 1 {
 		return nil, errInvalidPayload
 	}
+	if body.Bundle.Previous != nil {
+		return nil, errInvalidPayload
+	}
 	if err := checkOpaqueBundleFields(body.Bundle); err != nil {
 		return nil, err
 	}
@@ -193,7 +196,15 @@ func storedBundle(userID string, bundle bundlePayload, params pwhashParams) stor
 		EncPub:          bundle.EncPub,
 		SignPub:         bundle.SignPub,
 		SelfSig:         bundle.SelfSig,
+		Previous:        storedPrevious(bundle.Previous),
 	}
+}
+
+func storedPrevious(previous *previousIdentityPayload) *store.PreviousIdentity {
+	if previous == nil {
+		return nil
+	}
+	return &store.PreviousIdentity{IdentityPrivate: previous.IdentityPrivate, EncPub: previous.EncPub, SignPub: previous.SignPub}
 }
 
 // buildRootTree checks the root nodes and the owner's grant on each, which is

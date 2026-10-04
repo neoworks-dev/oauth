@@ -28,11 +28,13 @@ type Store interface {
 	CreateAccount(ctx context.Context, account store.NewAccount) error
 	ChangePassword(ctx context.Context, change store.PasswordChange) error
 	RotateBundle(ctx context.Context, rotation store.Rotation) error
+	CompleteRotation(ctx context.Context, userID string, version uint32) error
 	SetEscrowEnabled(ctx context.Context, userID string, enabled bool) error
 	RegisterDevice(ctx context.Context, userID, deviceID, name, kind string) error
 	IsDeviceActive(ctx context.Context, userID, deviceID string) (bool, error)
 	GetInstall(ctx context.Context, installID string) (*store.Install, error)
 	SaveInstallConsent(ctx context.Context, consent store.InstallConsent) error
+	SaveRefreshToken(ctx context.Context, token store.RefreshToken) error
 	ListStructure(ctx context.Context, userID string) ([]store.Node, error)
 	ListSharedStructure(ctx context.Context, userID string) ([]store.Node, error)
 	ListOwnerGrants(ctx context.Context, userID string) ([]store.AccessGrant, error)
@@ -106,12 +108,6 @@ func (server *Server) Router() http.Handler {
 	return router
 }
 
-// HandoverRouter exposes only the authenticator side of the handover, for the
-// oauth origin.
-func (server *Server) HandoverRouter(router chi.Router) {
-	router.Post("/vault/handover/{sessionID}", server.handleHandoverDeliver)
-}
-
 func (server *Server) registerAPI(api chi.Router) {
 	api.Post("/prelogin", server.handlePrelogin)
 	api.Post("/login", server.handleLogin)
@@ -140,6 +136,7 @@ func (server *Server) registerAuthenticated(api chi.Router) {
 	api.Post("/deny", server.handleDeny)
 	api.Post("/password", server.handleChangePassword)
 	api.Post("/rotate", server.handleRotate)
+	api.Post("/rotate/complete", server.handleRotateComplete)
 	api.Post("/handover", server.handleHandoverCreate)
 	api.Get("/handover/{sessionID}", server.handleHandoverPoll)
 	api.Get("/qr.png", server.handleQR)

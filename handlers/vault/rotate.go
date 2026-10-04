@@ -1,6 +1,7 @@
 package vault
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/neoworks/oauth/internal/store"
@@ -20,8 +21,11 @@ type rotateRequest struct {
 	Escrow         *escrowChange `json:"escrow"`
 }
 
+var errRotationInProgress = errors.New("a full rotation is still being completed")
+
 // handleRotate swaps the whole key bundle for the next version. Light rotations
-// keep the identity keys; full rotations replace them.
+// keep the identity keys; full rotations replace them and keep the replaced
+// identity in the bundle until /vault/rotate/complete.
 func (server *Server) handleRotate(response http.ResponseWriter, request *http.Request) {
 	var body rotateRequest
 	if err := readJSON(request, &body); err != nil {
@@ -32,7 +36,11 @@ func (server *Server) handleRotate(response http.ResponseWriter, request *http.R
 	if !ok {
 		return
 	}
-	rotation, err := buildRotation(user.ID, body)
+	rotation, err := server.buildCheckedRotation(request, user.ID, body)
+	if errors.Is(err, errRotationInProgress) {
+		writeError(response, http.StatusConflict, "rotation_in_progress")
+		return
+	}
 	if err != nil {
 		writeError(response, http.StatusBadRequest, "invalid_request")
 		return
@@ -132,4 +140,77 @@ func (server *Server) finishEscrowChange(response http.ResponseWriter, request *
 		return false
 	}
 	return true
+}
+
+func (server *Server) buildCheckedRotation(request *http.Request, userID string, body rotateRequest) (store.Rotation, error) {
+	rotation, err := buildRotation(userID, body)
+	if err != nil {
+		return store.Rotation{}, err
+	}
+	current, err := server.store.GetKeyBundle(request.Context(), userID)
+	if err != nil {
+		return store.Rotation{}, err
+	}
+	if err := checkPreviousIdentity(current, body.Bundle); err != nil {
+		return store.Rotation{}, err
+	}
+	return rotation, nil
+}
+
+// checkPreviousIdentity enforces how the replaced identity travels. A rotation
+// that changes the identity must carry the identity it replaces and may not
+// start while another is unfinished. A rotation that keeps the identity carries
+// the unfinished previous identity forward unchanged, or none.
+func checkPreviousIdentity(current *store.KeyBundle, next bundlePayload) error {
+	identityChanged := next.EncPub != current.EncPub || next.SignPub != current.SignPub
+	if identityChanged && current.Previous != nil {
+		return errRotationInProgress
+	}
+	if identityChanged {
+		return requirePrevious(next.Previous, current.EncPub, current.SignPub)
+	}
+	if current.Previous != nil {
+		return requirePrevious(next.Previous, current.Previous.EncPub, current.Previous.SignPub)
+	}
+	if next.Previous != nil {
+		return errInvalidPayload
+	}
+	return nil
+}
+
+func requirePrevious(previous *previousIdentityPayload, encPub, signPub string) error {
+	if previous == nil || previous.EncPub != encPub || previous.SignPub != signPub {
+		return errInvalidPayload
+	}
+	_, err := decodeBounded(previous.IdentityPrivate, maxBlobTextSize)
+	return err
+}
+
+type completeRotationRequest struct {
+	CurrentAuthKey string `json:"currentAuthKey"`
+	Version        uint32 `json:"version"`
+}
+
+// handleRotateComplete drops the previous identity once the client has rewrapped
+// every key to the new one.
+func (server *Server) handleRotateComplete(response http.ResponseWriter, request *http.Request) {
+	var body completeRotationRequest
+	if err := readJSON(request, &body); err != nil {
+		writeError(response, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	user, ok := server.reauthenticate(response, request, body.CurrentAuthKey)
+	if !ok {
+		return
+	}
+	err := server.store.CompleteRotation(request.Context(), user.ID, body.Version)
+	if err == store.ErrConflict {
+		writeError(response, http.StatusConflict, "bundle_version_conflict")
+		return
+	}
+	if err != nil {
+		writeError(response, http.StatusInternalServerError, "server_error")
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]bool{"ok": true})
 }

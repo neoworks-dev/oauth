@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"time"
+
+	"github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
 // KeyBundle is the server-held, opaque key material of an account. Binary
@@ -19,6 +21,16 @@ type KeyBundle struct {
 	EncPub          string `json:"encPub"`
 	SignPub         string `json:"signPub"`
 	SelfSig         string `json:"selfSig"`
+	// Previous is the identity before an unfinished full rotation, wrapped under
+	// the current AMK. It stays until every key is rewrapped to the new identity.
+	Previous *PreviousIdentity `json:"previous"`
+}
+
+// PreviousIdentity is the identity a full rotation replaced.
+type PreviousIdentity struct {
+	IdentityPrivate string `json:"identityPrivate"`
+	EncPub          string `json:"encPub"`
+	SignPub         string `json:"signPub"`
 }
 
 type keyBundleRow struct {
@@ -33,13 +45,27 @@ type keyBundleRow struct {
 	EncPub          string `json:"enc_pub"`
 	SignPub         string `json:"sign_pub"`
 	SelfSig         string `json:"self_sig"`
+
+	PreviousIdentityPrivate *string `json:"previous_identity_private"`
+	PreviousEncPub          *string `json:"previous_enc_pub"`
+	PreviousSignPub         *string `json:"previous_sign_pub"`
 }
 
 const keyBundleColumns = `record::id(user) AS user, version, pwhash_salt, pwhash_ops,
-	pwhash_mem, amk_password, amk_recovery, identity_private, enc_pub, sign_pub, self_sig`
+	pwhash_mem, amk_password, amk_recovery, identity_private, enc_pub, sign_pub, self_sig,
+	previous_identity_private, previous_enc_pub, previous_sign_pub`
 
 func (row keyBundleRow) toBundle() *KeyBundle {
-	bundle := KeyBundle(row)
+	bundle := KeyBundle{
+		UserID: row.UserID, Version: row.Version, PwhashSalt: row.PwhashSalt, PwhashOps: row.PwhashOps,
+		PwhashMem: row.PwhashMem, AmkPassword: row.AmkPassword, AmkRecovery: row.AmkRecovery,
+		IdentityPrivate: row.IdentityPrivate, EncPub: row.EncPub, SignPub: row.SignPub, SelfSig: row.SelfSig,
+	}
+	if row.PreviousIdentityPrivate != nil && row.PreviousEncPub != nil && row.PreviousSignPub != nil {
+		bundle.Previous = &PreviousIdentity{
+			IdentityPrivate: *row.PreviousIdentityPrivate, EncPub: *row.PreviousEncPub, SignPub: *row.PreviousSignPub,
+		}
+	}
 	return &bundle
 }
 
@@ -54,7 +80,7 @@ func (store *Store) GetKeyBundle(ctx context.Context, userID string) (*KeyBundle
 }
 
 func bundleFields(bundle KeyBundle) map[string]any {
-	return map[string]any{
+	fields := map[string]any{
 		"version":          bundle.Version,
 		"pwhash_salt":      bundle.PwhashSalt,
 		"pwhash_ops":       bundle.PwhashOps,
@@ -67,6 +93,20 @@ func bundleFields(bundle KeyBundle) map[string]any {
 		"self_sig":         bundle.SelfSig,
 		"updated_at":       time.Now().UTC(),
 	}
+	addPreviousFields(fields, bundle.Previous)
+	return fields
+}
+
+func addPreviousFields(fields map[string]any, previous *PreviousIdentity) {
+	if previous == nil {
+		fields["previous_identity_private"] = models.None
+		fields["previous_enc_pub"] = models.None
+		fields["previous_sign_pub"] = models.None
+		return
+	}
+	fields["previous_identity_private"] = previous.IdentityPrivate
+	fields["previous_enc_pub"] = previous.EncPub
+	fields["previous_sign_pub"] = previous.SignPub
 }
 
 // PasswordChange replaces the password-derived material of an account while
@@ -135,12 +175,34 @@ func (store *Store) RotateBundle(ctx context.Context, rotation Rotation) error {
 			version = $version, pwhash_salt = $pwhash_salt, pwhash_ops = $pwhash_ops,
 			pwhash_mem = $pwhash_mem, amk_password = $amk_password, amk_recovery = $amk_recovery,
 			identity_private = $identity_private, enc_pub = $enc_pub, sign_pub = $sign_pub,
-			self_sig = $self_sig, updated_at = $updated_at
+			self_sig = $self_sig, updated_at = $updated_at,
+			previous_identity_private = $previous_identity_private, previous_enc_pub = $previous_enc_pub,
+			previous_sign_pub = $previous_sign_pub
 			WHERE user = $user_record AND version = $expected_version
 			RETURN `+keyBundleColumns+`;
 		COMMIT TRANSACTION;`, fields)
 	if err != nil {
 		return wrapQueryError("rotate bundle", err)
+	}
+	if len(updated) == 0 {
+		return ErrConflict
+	}
+	return nil
+}
+
+// CompleteRotation drops the previous identity once the client rewrapped every
+// key to the new one. It fails with ErrConflict when the bundle moved on.
+func (store *Store) CompleteRotation(ctx context.Context, userID string, version uint32) error {
+	updated, err := transactionRows[keyBundleRow](ctx, store, `
+		BEGIN TRANSACTION;
+		UPDATE key_bundle SET previous_identity_private = NONE, previous_enc_pub = NONE,
+			previous_sign_pub = NONE, updated_at = time::now()
+			WHERE user = $user_record AND version = $version
+			RETURN `+keyBundleColumns+`;
+		COMMIT TRANSACTION;`,
+		map[string]any{"user_record": recordID("user", userID), "version": version})
+	if err != nil {
+		return wrapQueryError("complete rotation", err)
 	}
 	if len(updated) == 0 {
 		return ErrConflict

@@ -40,7 +40,7 @@ func NewOAuthRouter(deps OAuthDependencies) http.Handler {
 	oauthhandlers.NewJWKSHandler(deps.Keys).Register(router)
 	oauthhandlers.NewDiscoveryHandler(deps.IssuerURL).Register(router)
 	staticassets.NewHandler().Register(router)
-	deps.Vault.HandoverRouter(router)
+	deps.Vault.AuthenticatorRouter(router)
 
 	bearer := oauthhandlers.RequireBearer(deps.Issuer, deps.State)
 	googlehandler.NewHandler(deps.GoogleConfig, deps.GoogleClient).Register(router, bearer)

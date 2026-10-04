@@ -71,6 +71,15 @@ type bundlePayload struct {
 	EncPub          string `json:"encPub"`
 	SignPub         string `json:"signPub"`
 	SelfSig         string `json:"selfSig"`
+	// Previous accompanies a full rotation: the replaced identity, wrapped under
+	// the new AMK, until every key is rewrapped.
+	Previous *previousIdentityPayload `json:"previous"`
+}
+
+type previousIdentityPayload struct {
+	IdentityPrivate string `json:"identityPrivate"`
+	EncPub          string `json:"encPub"`
+	SignPub         string `json:"signPub"`
 }
 
 // decodeSized decodes base64url text that must be exactly size bytes.

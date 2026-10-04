@@ -12,7 +12,7 @@ test("replacing the account key issues a new recovery key and retires the old on
   await expect(page.locator("h1")).toHaveText("Save your recovery key");
   const newWords = await page.locator("#recovery-words div").evaluateAll((items) =>
     items.map((item) => (item.textContent || "").replace(/^\d+\./, "").trim()));
-  expect(newWords).toHaveLength(32);
+  expect(newWords).toHaveLength(24);
   expect(newWords).not.toEqual(oldWords);
   await page.check("#recovery-confirm");
   await page.click("#confirm-recovery");

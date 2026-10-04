@@ -136,27 +136,37 @@ type loginRequest struct {
 }
 
 func (server *Server) handleLogin(response http.ResponseWriter, request *http.Request) {
+	body, user, ok := server.authenticatePassword(response, request)
+	if !ok {
+		return
+	}
+	server.completeLogin(response, request, user, body)
+}
+
+// authenticatePassword reads a loginRequest and verifies its authKey. On
+// failure it has already written the error response.
+func (server *Server) authenticatePassword(response http.ResponseWriter, request *http.Request) (loginRequest, *store.User, bool) {
 	var body loginRequest
 	if err := readJSON(request, &body); err != nil {
 		writeError(response, http.StatusBadRequest, "invalid_request")
-		return
+		return body, nil, false
 	}
 	email := normalizeEmail(body.Email)
 	authKey, validKey := parseAuthKey(body.AuthKey)
 	if email == "" || !validKey || !ids.IsLowercaseUUIDv4(body.DeviceID) {
 		writeError(response, http.StatusBadRequest, "invalid_request")
-		return
+		return body, nil, false
 	}
 	if server.loginRateLimited(request, email) {
 		writeError(response, http.StatusTooManyRequests, "rate_limited")
-		return
+		return body, nil, false
 	}
 	user := server.findUser(request, email)
 	if !verifyAuthKey(user, authKey) {
 		writeError(response, http.StatusUnauthorized, "invalid_credentials")
-		return
+		return body, nil, false
 	}
-	server.completeLogin(response, request, user, body)
+	return body, user, true
 }
 
 func (server *Server) loginRateLimited(request *http.Request, email string) bool {

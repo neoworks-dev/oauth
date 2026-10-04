@@ -1,6 +1,6 @@
 // The signed-in account page: this browser, password, keys, recovery help.
 
-import { changePassword, commitRotation, prepareLightRotation } from "./account-actions.js";
+import { changePassword, commitRotation, finishRotation, prepareFullRotation, prepareLightRotation } from "./account-actions.js";
 import { describeError, getJson, postJson } from "./nw-api.js";
 import { ESCROW_PUBLIC_KEY } from "./escrow-key.js";
 import { errorBox, field, h, withBusy } from "./nw-dom.js";
@@ -99,6 +99,68 @@ function rotationSection(context, session) {
     form);
 }
 
+function identitySection(context, session) {
+  const password = field("Your password", { id: "identity-password", type: "password", autocomplete: "current-password", required: true });
+  const failure = errorBox();
+  const submit = h("button", { type: "submit", class: "secondary", id: "replace-identity" }, "Replace identity keys");
+  const form = h("form", {
+    onsubmit: async (event) => {
+      event.preventDefault();
+      failure.clear();
+      await withBusy(submit, "Preparing…", async () => {
+        try {
+          await startIdentityRotation(context, session, password.input.value);
+        } catch (error) {
+          failure.show(describeError(error));
+        }
+      });
+    },
+  }, failure.element, password.row, submit);
+  return section("Replace identity keys",
+    h("p", { class: "hint" },
+      "Creates a new identity and a new account master key, then seals your own data keys to the new identity. " +
+      "The old identity stays in your account until that is finished, so an interruption loses nothing. " +
+      "People who shared something with you need to share it again afterwards."),
+    form);
+}
+
+function finishSection(context) {
+  const password = field("Your password", { id: "finish-password", type: "password", autocomplete: "current-password", required: true });
+  const failure = errorBox();
+  const submit = h("button", { type: "submit", id: "finish-rotation" }, "Finish key replacement");
+  const form = h("form", {
+    onsubmit: async (event) => {
+      event.preventDefault();
+      failure.clear();
+      await withBusy(submit, "Finishing…", async () => {
+        try {
+          await finishRotation(context.boot.apiUrl, password.input.value);
+          context.navigate("/account");
+        } catch (error) {
+          failure.show(describeError(error));
+        }
+      });
+    },
+  }, failure.element, password.row, submit);
+  return section("Finish key replacement",
+    h("p", { class: "hint" }, "A key replacement was started but not finished. Your old identity is still kept so nothing is lost."),
+    form);
+}
+
+async function startIdentityRotation(context, session, password) {
+  const bundle = await getJson("/vault/bundle");
+  const prepared = prepareFullRotation(bundle, password, rotationEscrow(session));
+  renderRecoveryKeyConfirmation(context, {
+    words: bytesToWords(prepared.recoveryEntropy),
+    confirmLabel: "Replace identity",
+    onConfirm: async () => {
+      await commitRotation(prepared);
+      await finishRotation(context.boot.apiUrl, password);
+      context.navigate("/account");
+    },
+  });
+}
+
 function rotationEscrow(session) {
   if (session.escrowEnabled) {
     return { mode: "replace", publicKey: ESCROW_PUBLIC_KEY };
@@ -137,6 +199,10 @@ export async function renderAccount(context, session) {
     ...heading("Your account", session.email),
     await browserSection(session), passwordSection(), rotationSection(context, session),
   ];
+  if (requireUnlocked().previousIdentity !== null) {
+    parts.push(finishSection(context));
+  }
+  parts.push(identitySection(context, session));
   if (context.boot.escrowAvailable) {
     parts.push(renderEscrowSettings(context, session));
   }

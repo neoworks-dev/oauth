@@ -230,6 +230,29 @@ func (account *Account) RotationRequest(expectedVersion uint32, newAuthKey []byt
 	return request
 }
 
+// WithNewIdentity is the same user with a freshly generated identity, as after
+// a full rotation.
+func (account *Account) WithNewIdentity() *Account {
+	rotated := *account
+	rotated.EncPub, rotated.EncSec, _ = box.GenerateKey(rand.Reader)
+	rotated.SignPub, rotated.SignSec, _ = ed25519.GenerateKey(rand.Reader)
+	return &rotated
+}
+
+// FullRotationRequest rotates from this account's identity to next's. The
+// bundle carries the replaced identity, which the server keeps until the
+// rotation is completed.
+func (account *Account) FullRotationRequest(next *Account, expectedVersion uint32, newAuthKey []byte) map[string]any {
+	request := next.RotationRequest(expectedVersion, newAuthKey)
+	request["currentAuthKey"] = account.AuthKeyText()
+	request["bundle"].(map[string]any)["previous"] = map[string]any{
+		"identityPrivate": wire.EncodeBase64URL(randomBytes(144)),
+		"encPub":          wire.EncodeBase64URL(account.EncPub[:]),
+		"signPub":         wire.EncodeBase64URL(account.SignPub),
+	}
+	return request
+}
+
 // RandomKey returns 32 random bytes, for an authKey.
 func RandomKey() []byte {
 	return randomBytes(32)

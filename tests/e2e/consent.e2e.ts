@@ -64,6 +64,29 @@ test("consent with a narrowed selection yields a token bound to the install", as
   expect(violations).toEqual([]);
 });
 
+test("sharing with other people is a separate permission that starts unchecked", async ({ page }) => {
+  const account = newAccount();
+  await signUp(page, account);
+
+  const declined = authorizeUrl("e2e-app", "openid calendar:read calendar:write calendar:share");
+  await page.goto(declined.url);
+  await expect(page.locator(".scopes li")).toHaveCount(3);
+  await expect(page.locator("label[for=share-calendar]")).toHaveText("Share your calendars with other people");
+  await expect(page.locator("#share-calendar")).not.toBeChecked();
+  await page.click("#allow");
+  const withoutShare = await awaitCallback(page);
+  const plain = await exchange(page, withoutShare.searchParams.get("code")!, declined.verifier, "e2e-app");
+  expect(plain.body.scope).not.toContain("calendar:share");
+
+  const accepted = authorizeUrl("e2e-app", "openid calendar:read calendar:write calendar:share");
+  await page.goto(accepted.url);
+  await page.check("#share-calendar");
+  await page.click("#allow");
+  const withShare = await awaitCallback(page);
+  const shared = await exchange(page, withShare.searchParams.get("code")!, accepted.verifier, "e2e-app");
+  expect(shared.body.scope).toContain("calendar:share");
+});
+
 test("a first-party client is approved without a click", async ({ page }) => {
   const account = newAccount();
   await signUp(page, account);

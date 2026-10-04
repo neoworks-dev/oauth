@@ -4,6 +4,7 @@
 // the password when the user chose to remember it.
 
 import { unwrapIdentity } from "./nw-account.js";
+import { openPreviousIdentity } from "./nw-rotation.js";
 import { unwrapWithBrowserKey, wrapWithBrowserKey } from "./nw-browser-wrap.js";
 import { META_STORE, WRAP_STORE, deleteRecord, readRecord, writeRecord } from "./nw-idb.js";
 import { wipe } from "./nw-primitives.js";
@@ -35,8 +36,9 @@ export function requireUnlocked() {
 // unlock verifies the AMK by opening the identity and then keeps both.
 export function unlock(amk, bundle) {
   const identity = unwrapIdentity(amk, bundle);
+  const previousIdentity = openPreviousIdentity(amk, bundle);
   discardCurrent(amk);
-  unlocked = { userId: bundle.userId, amk, identity, bundle };
+  unlocked = { userId: bundle.userId, amk, identity, previousIdentity, bundle };
   armIdleTimer();
 }
 
@@ -49,6 +51,10 @@ function discardCurrent(keptAmk) {
   }
   wipe(unlocked.identity.encSec);
   wipe(unlocked.identity.signSec);
+  if (unlocked.previousIdentity !== null) {
+    wipe(unlocked.previousIdentity.encSec);
+    wipe(unlocked.previousIdentity.signSec);
+  }
   unlocked = null;
 }
 

@@ -182,11 +182,30 @@ describe("nodes shared with the user", () => {
 });
 
 describe("recovery words", () => {
-  test("the wordlist covers every byte value exactly once", () => {
-    const everyByte = Uint8Array.from({ length: 256 }, (_, value) => value);
-    const words = recovery.bytesToWords(everyByte);
-    expect(new Set(words).size).toBe(256);
-    expect(Buffer.from(recovery.wordsToBytes(words)).equals(Buffer.from(everyByte))).toBe(true);
+  // BIP39 test vectors for 256-bit entropy.
+  const vectors: Array<[number, string]> = [
+    [0x00, "abandon ".repeat(23) + "art"],
+    [0x7f, "legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth title"],
+    [0x80, "letter advice cage absurd amount doctor acoustic avoid letter advice cage absurd amount doctor acoustic avoid letter advice cage absurd amount doctor acoustic bless"],
+    [0xff, "zoo ".repeat(23) + "vote"],
+  ];
+
+  test("matches the BIP39 test vectors", () => {
+    for (const [byte, phrase] of vectors) {
+      const entropy = new Uint8Array(32).fill(byte);
+      expect(recovery.bytesToWords(entropy).join(" ")).toBe(phrase);
+      expect(Buffer.from(recovery.parseRecoveryWords(phrase)).equals(Buffer.from(entropy))).toBe(true);
+    }
+  });
+
+  test("a wrong checksum, word count or unknown word is refused", () => {
+    const words = recovery.bytesToWords(new Uint8Array(32));
+    expect(words.length).toBe(24);
+    expect(() => recovery.wordsToBytes(words.slice(0, 23))).toThrow();
+    expect(() => recovery.wordsToBytes([...words.slice(0, 23), "notaword"])).toThrow();
+    const swapped = [...words];
+    swapped[0] = swapped[0] === "zoo" ? "abandon" : "zoo";
+    expect(() => recovery.wordsToBytes(swapped)).toThrow();
   });
 
   test("parseRecoveryWords accepts mixed separators and case", () => {
