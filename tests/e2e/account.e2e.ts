@@ -23,6 +23,14 @@ test("signup, sign-out, sign-in and a remembered browser", async ({ page }) => {
   expect(violations).toEqual([]);
 });
 
+test("the account page shows the user's contact code", async ({ page }) => {
+  const violations = collectViolations(page);
+  await signUp(page, newAccount());
+  await expect(page.locator("h1")).toHaveText("Your account");
+  await expect(page.locator("#contact-code")).toHaveText(/^[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}$/);
+  expect(violations).toEqual([]);
+});
+
 test("a wrong password is rejected and an unremembered browser asks again", async ({ page }) => {
   const violations = collectViolations(page);
   const account = newAccount();

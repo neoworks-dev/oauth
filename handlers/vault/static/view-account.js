@@ -1,7 +1,7 @@
 // The signed-in account page: this browser, password, keys, recovery help.
 
 import { changePassword, commitRotation, finishRotation, prepareFullRotation, prepareLightRotation } from "./account-actions.js";
-import { describeError, getJson, postJson } from "./nw-api.js";
+import { callApi, describeError, getJson, postJson } from "./nw-api.js";
 import { ESCROW_PUBLIC_KEY } from "./escrow-key.js";
 import { errorBox, field, h, withBusy } from "./nw-dom.js";
 import { clearDeviceWrap, hasDeviceWrap, lock, requireUnlocked, saveDeviceWrap } from "./nw-keystore.js";
@@ -45,6 +45,22 @@ async function browserSection(session) {
     paint(true);
   });
   return section("This browser", status, toggle);
+}
+
+async function contactCodeSection(context) {
+  const display = h("code", { id: "contact-code" }, "…");
+  const failure = errorBox();
+  try {
+    const payload = await callApi(context.boot.apiUrl, "GET", "/api/v1/contact-code");
+    display.textContent = payload.code;
+  } catch (error) {
+    display.textContent = "";
+    failure.show(describeError(error));
+  }
+  return section("Your contact code",
+    h("p", { class: "hint" },
+      "Share this code so people can find you and share things with you. It only locates your account; your keys stay verified on their side."),
+    display, failure.element);
 }
 
 function passwordSection() {
@@ -197,7 +213,7 @@ function signOutSection(context) {
 export async function renderAccount(context, session) {
   const parts = [
     ...heading("Your account", session.email),
-    await browserSection(session), passwordSection(), rotationSection(context, session),
+    await browserSection(session), await contactCodeSection(context), passwordSection(), rotationSection(context, session),
   ];
   if (requireUnlocked().previousIdentity !== null) {
     parts.push(finishSection(context));
