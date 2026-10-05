@@ -14,6 +14,8 @@ type treeNodeView struct {
 	Collection string         `json:"collection"`
 	Kind       string         `json:"kind"`
 	Epoch      uint32         `json:"epoch"`
+	BaseSeq    uint64         `json:"baseSeq"`
+	Deleted    bool           `json:"deleted"`
 	WrappedKey *string        `json:"wrappedKey"`
 	Content    []facetPayload `json:"content"`
 }
@@ -117,7 +119,8 @@ func (server *Server) ownerEmails(request *http.Request, userID string, nodes []
 }
 
 func treeNodeViewOf(node store.Node) treeNodeView {
-	view := treeNodeView{ID: node.ID, OwnerID: node.OwnerID, Collection: node.Collection, Kind: node.Kind, Epoch: node.Epoch}
+	view := treeNodeView{ID: node.ID, OwnerID: node.OwnerID, Collection: node.Collection, Kind: node.Kind, Epoch: node.Epoch,
+		BaseSeq: node.BaseSeq, Deleted: node.Deleted}
 	if node.ParentID != "" {
 		parentID := node.ParentID
 		view.ParentID = &parentID

@@ -1,7 +1,7 @@
 // Consent: the user chooses which parts of their account an app installation
 // may read, and the vault wraps the matching keys to the install.
 
-import { ApiError, describeError, getJson, postJson } from "./nw-api.js";
+import { ApiError, describeError, isChallengeGone, getJson, postJson } from "./nw-api.js";
 import { buildCertificate } from "./nw-nodes.js";
 import { buildInstallGrants, buildKeyIndex, describeCollections, describeSharedNodes, heldRoles } from "./nw-consent-tree.js";
 import { errorBox, h, withBusy } from "./nw-dom.js";
@@ -207,7 +207,7 @@ export async function renderConsent(context) {
   try {
     plan = await loadPlan(context);
   } catch (error) {
-    mountView(context, ...heading("Something went wrong", describeError(error)));
+    showConsentFailure(context, error);
     return;
   }
   const choices = shareChoices(plan);
@@ -220,6 +220,10 @@ export async function renderConsent(context) {
     try {
       await submitApproval(context, plan);
     } catch (error) {
+      if (isChallengeGone(error)) {
+        showConsentFailure(context, error);
+        return;
+      }
       failure.show(describeError(error));
     }
   }));
@@ -237,8 +241,22 @@ function installDetails(challenge) {
   return h("p", { class: "hint" }, "App installation: " + challenge.install.name + " (key " + installFingerprint(challenge.install) + ")");
 }
 
+// showConsentFailure replaces the consent screen; an expired or used request
+// gets no retry because only a new authorization from the app can succeed.
+function showConsentFailure(context, error) {
+  if (isChallengeGone(error)) {
+    mountView(context, ...heading("Sign-in expired", describeError(error)));
+    return;
+  }
+  mountView(context, ...heading("Something went wrong", describeError(error)));
+}
+
 async function denyRequest(context) {
-  const result = await postJson("/vault/deny", { loginChallenge: context.challengeId });
-  window.location.assign(result.redirect);
+  try {
+    const result = await postJson("/vault/deny", { loginChallenge: context.challengeId });
+    window.location.assign(result.redirect);
+  } catch (error) {
+    showConsentFailure(context, error);
+  }
 }
 

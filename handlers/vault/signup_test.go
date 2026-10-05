@@ -26,6 +26,12 @@ func TestSignupWritesAccountAndSignsIn(t *testing.T) {
 	if tree.Status != 200 || len(tree.Body["nodes"].([]any)) != len(scopes.Collections) || len(tree.Body["grants"].([]any)) != len(scopes.Collections) {
 		t.Fatalf("tree: %d %s", tree.Status, tree.Raw)
 	}
+	for _, entry := range tree.Body["nodes"].([]any) {
+		node := entry.(map[string]any)
+		if node["baseSeq"] != float64(0) || node["deleted"] != false {
+			t.Fatalf("tree node lacks the content AAD fields: %v", node)
+		}
+	}
 }
 
 func TestSignupRequiresAVerifiedEmail(t *testing.T) {

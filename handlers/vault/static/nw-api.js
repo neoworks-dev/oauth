@@ -87,6 +87,8 @@ const ERROR_MESSAGES = {
   email_not_verified: "Verify your email first.",
   bundle_version_conflict: "Your keys changed on another device. Reload and try again.",
   escrow_unavailable: "Key recovery help is not available right now.",
+  challenge_not_found: "This sign-in request has expired. Go back to the app and start again.",
+  challenge_used: "This sign-in request was already used. Go back to the app and start again.",
   escrow_failed: "The recovery service did not respond. Try again later.",
 };
 
@@ -95,4 +97,11 @@ export function describeError(error) {
     return ERROR_MESSAGES[error.code];
   }
   return "Something went wrong. Please try again.";
+}
+
+const CHALLENGE_ERROR_CODES = ["challenge_not_found", "challenge_used"];
+
+// isChallengeGone is true when the authorization request can never succeed on retry.
+export function isChallengeGone(error) {
+  return error instanceof ApiError && CHALLENGE_ERROR_CODES.includes(error.code);
 }

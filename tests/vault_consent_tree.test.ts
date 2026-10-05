@@ -44,11 +44,11 @@ function ownerTree() {
   return { identity, tree: { nodes: treeNodes, grants }, work, nested, calendarRoot };
 }
 
-function container(name: string, parent: any, parentKey: Uint8Array, userId: string) {
+function container(name: string, parent: any, parentKey: Uint8Array, userId: string, baseSeq = 0) {
   const key = primitives.randomBytes(32);
   const node: any = {
     id: crypto.randomUUID(), parentId: parent.id, ownerId: userId, collection: parent.collection, kind: "container",
-    epoch: 1, blob: null, deleted: false, baseSeq: 0,
+    epoch: 1, blob: null, deleted: false, baseSeq,
   };
   node.wrappedKey = primitives.encodeBase64Url(nodes.wrapNodeKey(parentKey, key, {
     id: node.id, parentId: parent.id, epoch: 1, parentEpoch: parent.epoch,
@@ -63,6 +63,15 @@ describe("consent tree", () => {
     const index = tree.buildKeyIndex(owned.tree, owned.identity);
     expect(index.size).toBe(nodes.ROOT_COLLECTIONS.length + 2);
     expect(Buffer.from(index.get(owned.nested.node.id).key).equals(Buffer.from(owned.nested.key))).toBe(true);
+  });
+
+  test("reads the name of a container written after its first revision", () => {
+    const owned = ownerTree();
+    const revised = container("Revised", owned.work.node, owned.work.key, "user-1", 3);
+    const extended = { ...owned.tree, nodes: [...owned.tree.nodes, revised.node] };
+    const index = tree.buildKeyIndex(extended, owned.identity);
+    const described = tree.describeCollections(extended, index, "user-1");
+    expect(described.calendar.containers.map((entry: any) => entry.name)).toContain("Revised");
   });
 
   test("describes collections with readable names and depth", () => {
