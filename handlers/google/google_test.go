@@ -168,3 +168,21 @@ func TestProxyNeverLogsTokens(t *testing.T) {
 		}
 	}
 }
+
+func TestNativeCallbackRelaysOnlyCodeStateAndErrorToTheAppScheme(t *testing.T) {
+	fix := newProxyFixture(t, testConfig())
+	request := httptest.NewRequest(http.MethodGet, "/google/native-callback?code=abc&state=s1&scope=x&other=y", nil)
+	recorder := httptest.NewRecorder()
+	fix.router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusFound {
+		t.Fatalf("status %d", recorder.Code)
+	}
+	target, err := url.Parse(recorder.Header().Get("Location"))
+	if err != nil || target.Scheme != "neoworks-calendar" || target.Host != "google" {
+		t.Fatalf("location %q", recorder.Header().Get("Location"))
+	}
+	query := target.Query()
+	if query.Get("code") != "abc" || query.Get("state") != "s1" || query.Get("other") != "" || query.Get("scope") != "" {
+		t.Fatalf("query %v", query)
+	}
+}

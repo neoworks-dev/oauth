@@ -34,7 +34,8 @@ type Config struct {
 
 func ConfigFromEnv() Config {
 	allowed := []string{}
-	for _, uri := range strings.Split(os.Getenv("GOOGLE_REDIRECT_URI"), ",") {
+	uris := os.Getenv("GOOGLE_REDIRECT_URI") + "," + os.Getenv("GOOGLE_NATIVE_REDIRECT_URI")
+	for _, uri := range strings.Split(uris, ",") {
 		trimmed := strings.TrimSpace(uri)
 		if trimmed != "" {
 			allowed = append(allowed, trimmed)
@@ -63,8 +64,27 @@ func NewHandler(config Config, client Doer) *Handler {
 	return &Handler{config: config, client: client}
 }
 
+// nativeAppRedirect is where the relay hands Google's answer to the native
+// calendar app. Google only allows https redirects for a web client, so the
+// consent page returns to the relay, which forwards code and state unchanged.
+const nativeAppRedirect = "neoworks-calendar://google"
+
+// handleNativeCallback relays Google's redirect to the native app's private scheme.
+func (handler *Handler) handleNativeCallback(response http.ResponseWriter, request *http.Request) {
+	forwarded := url.Values{}
+	for _, name := range []string{"code", "state", "error"} {
+		if value := request.URL.Query().Get(name); value != "" {
+			forwarded.Set(name, value)
+		}
+	}
+	response.Header().Set("Cache-Control", "no-store")
+	response.Header().Set("Referrer-Policy", "no-referrer")
+	http.Redirect(response, request, nativeAppRedirect+"?"+forwarded.Encode(), http.StatusFound)
+}
+
 // Register mounts the proxy behind the given bearer authentication.
 func (handler *Handler) Register(router chi.Router, authenticate func(http.Handler) http.Handler) {
+	router.Get("/google/native-callback", handler.handleNativeCallback)
 	router.Group(func(protected chi.Router) {
 		protected.Use(authenticate)
 		protected.Post("/google/token/exchange", handler.handleExchange)
