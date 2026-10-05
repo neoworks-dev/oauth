@@ -54,8 +54,9 @@ func newProxyFixture(t *testing.T, config Config) *proxyFixture {
 func testConfig() Config {
 	return Config{
 		ClientID: "google-client", ClientSecret: "google-secret",
-		AllowedRedirectURIs: []string{"https://calendar.test/google/callback"},
-		AcceptedScopes:      []string{"calendar:read", "calendar:write"},
+		RedirectURI:    "http://localhost:8080/google/callback",
+		WebCalendarURL: "https://calendar.test/google/callback",
+		AcceptedScopes: []string{"calendar:read", "calendar:write"},
 	}
 }
 
@@ -75,7 +76,7 @@ func (fix *proxyFixture) call(path string, body any, scopes ...string) (int, map
 
 func TestExchangeAddsTheClientSecretAndRelaysOnlyTokenFields(t *testing.T) {
 	fix := newProxyFixture(t, testConfig())
-	status, body := fix.call("/google/token/exchange", map[string]string{"code": "auth-code", "redirectUri": "https://calendar.test/google/callback"}, "calendar:read")
+	status, body := fix.call("/google/token/exchange", map[string]string{"code": "auth-code", "redirectUri": "http://localhost:8080/google/callback"}, "calendar:read")
 	if status != 200 || body["refresh_token"] != "google-refresh" || body["access_token"] != "google-access" {
 		t.Fatalf("exchange: %d %v", status, body)
 	}
@@ -103,7 +104,7 @@ func TestRefreshForwardsTheRefreshToken(t *testing.T) {
 
 func TestProxyChecksTheCallerAndTheRequest(t *testing.T) {
 	fix := newProxyFixture(t, testConfig())
-	exchange := map[string]string{"code": "c", "redirectUri": "https://calendar.test/google/callback"}
+	exchange := map[string]string{"code": "c", "redirectUri": "http://localhost:8080/google/callback"}
 	cases := []struct {
 		name   string
 		path   string
@@ -114,7 +115,8 @@ func TestProxyChecksTheCallerAndTheRequest(t *testing.T) {
 		{"no token", "/google/token/exchange", exchange, nil, 401},
 		{"wrong scope", "/google/token/exchange", exchange, []string{"photos:read"}, 403},
 		{"redirect not allowed", "/google/token/exchange", map[string]string{"code": "c", "redirectUri": "https://evil.test/cb"}, []string{"calendar:read"}, 400},
-		{"missing code", "/google/token/exchange", map[string]string{"redirectUri": "https://calendar.test/google/callback"}, []string{"calendar:read"}, 400},
+		{"web origin not registered", "/google/token/exchange", map[string]string{"code": "c", "redirectUri": "https://calendar.test/google/callback"}, []string{"calendar:read"}, 400},
+		{"missing code", "/google/token/exchange", map[string]string{"redirectUri": "http://localhost:8080/google/callback"}, []string{"calendar:read"}, 400},
 		{"missing refresh token", "/google/token/refresh", map[string]string{}, []string{"calendar:read"}, 400},
 	}
 	for _, testCase := range cases {
@@ -160,7 +162,7 @@ func TestProxyNeverLogsTokens(t *testing.T) {
 	defer slog.SetDefault(previous)
 
 	fix := newProxyFixture(t, testConfig())
-	fix.call("/google/token/exchange", map[string]string{"code": "secret-auth-code", "redirectUri": "https://calendar.test/google/callback"}, "calendar:read")
+	fix.call("/google/token/exchange", map[string]string{"code": "secret-auth-code", "redirectUri": "http://localhost:8080/google/callback"}, "calendar:read")
 	fix.call("/google/token/refresh", map[string]string{"refreshToken": "secret-refresh-token"}, "calendar:read")
 	for _, secret := range []string{"secret-auth-code", "secret-refresh-token", "google-secret", "google-refresh", "google-access"} {
 		if strings.Contains(logs.String(), secret) {
@@ -169,20 +171,52 @@ func TestProxyNeverLogsTokens(t *testing.T) {
 	}
 }
 
-func TestNativeCallbackRelaysOnlyCodeStateAndErrorToTheAppScheme(t *testing.T) {
+func relay(t *testing.T, query string) *httptest.ResponseRecorder {
+	t.Helper()
 	fix := newProxyFixture(t, testConfig())
-	request := httptest.NewRequest(http.MethodGet, "/google/native-callback?code=abc&state=s1&scope=x&other=y", nil)
 	recorder := httptest.NewRecorder()
-	fix.router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusFound {
-		t.Fatalf("status %d", recorder.Code)
+	fix.router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/google/callback?"+query, nil))
+	return recorder
+}
+
+func TestCallbackRelaysToTheTargetNamedInState(t *testing.T) {
+	cases := map[string]string{
+		"web.abc":    "https://calendar.test/google/callback",
+		"native.abc": "neoworks-calendar://google",
 	}
-	target, err := url.Parse(recorder.Header().Get("Location"))
-	if err != nil || target.Scheme != "neoworks-calendar" || target.Host != "google" {
+	for state, base := range cases {
+		recorder := relay(t, "code=c1&scope=x&other=y&state="+state)
+		want := base + "?code=c1&state=" + state
+		if recorder.Code != http.StatusFound || recorder.Header().Get("Location") != want {
+			t.Fatalf("state %q: status %d location %q, want %q", state, recorder.Code, recorder.Header().Get("Location"), want)
+		}
+	}
+}
+
+func TestCallbackForwardsErrors(t *testing.T) {
+	recorder := relay(t, "error=access_denied&state=native.abc")
+	want := "neoworks-calendar://google?error=access_denied&state=native.abc"
+	if recorder.Header().Get("Location") != want {
 		t.Fatalf("location %q", recorder.Header().Get("Location"))
 	}
-	query := target.Query()
-	if query.Get("code") != "abc" || query.Get("state") != "s1" || query.Get("other") != "" || query.Get("scope") != "" {
-		t.Fatalf("query %v", query)
+}
+
+func TestCallbackRejectsUnknownOrMissingTargets(t *testing.T) {
+	for _, query := range []string{
+		"code=c1", "code=c1&state=", "code=c1&state=abc", "code=c1&state=evil.abc",
+		"code=c1&state=https://evil.test.abc", "code=c1&state=.abc", "code=c1&state=Web.abc",
+	} {
+		recorder := relay(t, query)
+		if recorder.Code != http.StatusBadRequest || recorder.Header().Get("Location") != "" {
+			t.Fatalf("%q: status %d location %q", query, recorder.Code, recorder.Header().Get("Location"))
+		}
+	}
+}
+
+func TestCallbackIgnoresRedirectTargetsInTheRequest(t *testing.T) {
+	recorder := relay(t, "state=web.abc&redirect_uri=https://evil.test&next=https://evil.test")
+	location := recorder.Header().Get("Location")
+	if !strings.HasPrefix(location, "https://calendar.test/google/callback?") || strings.Contains(location, "evil") {
+		t.Fatalf("location %q", location)
 	}
 }

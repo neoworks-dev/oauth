@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/neoworks/oauth/handlers/oauth"
+	"github.com/neoworks/oauth/internal/config"
 )
 
 const (
@@ -25,28 +26,22 @@ const (
 )
 
 type Config struct {
-	ClientID            string
-	ClientSecret        string
-	AllowedRedirectURIs []string
-	TokenEndpoint       string
-	AcceptedScopes      []string
+	ClientID       string
+	ClientSecret   string
+	RedirectURI    string
+	WebCalendarURL string
+	TokenEndpoint  string
+	AcceptedScopes []string
 }
 
 func ConfigFromEnv() Config {
-	allowed := []string{}
-	uris := os.Getenv("GOOGLE_REDIRECT_URI") + "," + os.Getenv("GOOGLE_NATIVE_REDIRECT_URI")
-	for _, uri := range strings.Split(uris, ",") {
-		trimmed := strings.TrimSpace(uri)
-		if trimmed != "" {
-			allowed = append(allowed, trimmed)
-		}
-	}
 	return Config{
-		ClientID:            os.Getenv("GOOGLE_CLIENT_ID"),
-		ClientSecret:        os.Getenv("GOOGLE_CLIENT_SECRET"),
-		AllowedRedirectURIs: allowed,
-		TokenEndpoint:       defaultTokenEndpoint,
-		AcceptedScopes:      []string{"calendar:read", "calendar:write"},
+		ClientID:       os.Getenv("GOOGLE_CLIENT_ID"),
+		ClientSecret:   os.Getenv("GOOGLE_CLIENT_SECRET"),
+		RedirectURI:    strings.TrimSpace(os.Getenv("GOOGLE_REDIRECT_URI")),
+		WebCalendarURL: config.ServiceURL("calendar") + "/google/callback",
+		TokenEndpoint:  defaultTokenEndpoint,
+		AcceptedScopes: []string{"calendar:read", "calendar:write"},
 	}
 }
 
@@ -64,27 +59,51 @@ func NewHandler(config Config, client Doer) *Handler {
 	return &Handler{config: config, client: client}
 }
 
-// nativeAppRedirect is where the relay hands Google's answer to the native
-// calendar app. Google only allows https redirects for a web client, so the
-// consent page returns to the relay, which forwards code and state unchanged.
+// nativeAppRedirect is the calendar app's private-scheme URL.
 const nativeAppRedirect = "neoworks-calendar://google"
 
-// handleNativeCallback relays Google's redirect to the native app's private scheme.
-func (handler *Handler) handleNativeCallback(response http.ResponseWriter, request *http.Request) {
+// Google only ever sees the relay's callback as redirect URI. The app that
+// started the flow puts its target in front of the nonce in `state`
+// ("web.<nonce>", "native.<nonce>"); the relay maps it to a fixed URL.
+const (
+	webTarget    = "web"
+	nativeTarget = "native"
+)
+
+func (handler *Handler) targetURL(target string) (string, bool) {
+	switch target {
+	case webTarget:
+		return handler.config.WebCalendarURL, handler.config.WebCalendarURL != ""
+	case nativeTarget:
+		return nativeAppRedirect, true
+	}
+	return "", false
+}
+
+// handleCallback relays Google's redirect to the target named in `state`. The
+// destination comes only from the allow-list, never from the request.
+func (handler *Handler) handleCallback(response http.ResponseWriter, request *http.Request) {
+	query := request.URL.Query()
+	target, _, _ := strings.Cut(query.Get("state"), ".")
+	destination, known := handler.targetURL(target)
+	if !known {
+		writeError(response, http.StatusBadRequest, "invalid_state")
+		return
+	}
 	forwarded := url.Values{}
 	for _, name := range []string{"code", "state", "error"} {
-		if value := request.URL.Query().Get(name); value != "" {
+		if value := query.Get(name); value != "" {
 			forwarded.Set(name, value)
 		}
 	}
 	response.Header().Set("Cache-Control", "no-store")
 	response.Header().Set("Referrer-Policy", "no-referrer")
-	http.Redirect(response, request, nativeAppRedirect+"?"+forwarded.Encode(), http.StatusFound)
+	http.Redirect(response, request, destination+"?"+forwarded.Encode(), http.StatusFound)
 }
 
 // Register mounts the proxy behind the given bearer authentication.
 func (handler *Handler) Register(router chi.Router, authenticate func(http.Handler) http.Handler) {
-	router.Get("/google/native-callback", handler.handleNativeCallback)
+	router.Get("/google/callback", handler.handleCallback)
 	router.Group(func(protected chi.Router) {
 		protected.Use(authenticate)
 		protected.Post("/google/token/exchange", handler.handleExchange)
@@ -100,7 +119,7 @@ func (handler *Handler) handleExchange(response http.ResponseWriter, request *ht
 	if !handler.readRequest(response, request, &body) {
 		return
 	}
-	if body.Code == "" || !slices.Contains(handler.config.AllowedRedirectURIs, body.RedirectURI) {
+	if body.Code == "" || handler.config.RedirectURI == "" || body.RedirectURI != handler.config.RedirectURI {
 		writeError(response, http.StatusBadRequest, "invalid_request")
 		return
 	}
