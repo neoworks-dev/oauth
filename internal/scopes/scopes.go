@@ -9,6 +9,7 @@ import (
 
 var (
 	identityScopes           = []string{"openid", "profile", "email"}
+	serviceScopes            = []string{"schemas:publish"}
 	collectionSegmentPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 	collectionActions        = []string{"read", "write", "share"}
 )
@@ -45,9 +46,13 @@ func collectionScope(scope string) (collection, action string, ok bool) {
 	return collection, action, true
 }
 
-// IsKnown reports whether a scope is an identity scope or <collection>:read|write|share.
+// IsKnown reports whether a scope is an identity scope, a service scope or
+// <collection>:read|write|share.
 func IsKnown(scope string) bool {
 	if slices.Contains(identityScopes, scope) {
+		return true
+	}
+	if slices.Contains(serviceScopes, scope) {
 		return true
 	}
 	_, _, ok := collectionScope(scope)
