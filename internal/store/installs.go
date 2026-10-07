@@ -135,10 +135,13 @@ func (store *Store) ListLogHeads(ctx context.Context, nodeIDs []string) (map[str
 }
 
 // InstallConsent is everything a consent writes: the install, its delegation
-// certificate and the install grants.
+// certificate, the roots of collections the user had none in with the owner's
+// grants on them, and the install grants.
 type InstallConsent struct {
 	Install     Install
 	Certificate Certificate
+	Roots       []Node
+	RootGrants  []AccessGrant
 	Grants      []AccessGrant
 }
 
@@ -146,9 +149,14 @@ type InstallConsent struct {
 // transaction. Earlier active grants of the install on the same nodes are
 // replaced, and every grant is appended to access_log.
 func (store *Store) SaveInstallConsent(ctx context.Context, consent InstallConsent) error {
-	grantRows := make([]map[string]any, 0, len(consent.Grants))
-	logRows := make([]map[string]any, 0, len(consent.Grants))
-	for _, grant := range consent.Grants {
+	nodeRows := make([]map[string]any, 0, len(consent.Roots))
+	for _, node := range consent.Roots {
+		nodeRows = append(nodeRows, nodeFields(node))
+	}
+	grants := append(append([]AccessGrant{}, consent.RootGrants...), consent.Grants...)
+	grantRows := make([]map[string]any, 0, len(grants))
+	logRows := make([]map[string]any, 0, len(grants))
+	for _, grant := range grants {
 		grantRows = append(grantRows, accessGrantFields(grant))
 		logRows = append(logRows, accessLogFields(grant))
 	}
@@ -160,6 +168,7 @@ func (store *Store) SaveInstallConsent(ctx context.Context, consent InstallConse
 			bytes = $certificate_bytes, signature = $certificate_signature;
 		DELETE access_grant WHERE principal_type = 'install' AND principal_id = $install_key
 			AND node_id IN $node_ids;
+		INSERT INTO node $node_rows;
 		INSERT INTO access_grant $grant_rows;
 		INSERT INTO access_log $log_rows;
 		COMMIT TRANSACTION;`,
@@ -175,6 +184,7 @@ func (store *Store) SaveInstallConsent(ctx context.Context, consent InstallConse
 			"certificate_bytes":     consent.Certificate.Bytes,
 			"certificate_signature": consent.Certificate.Signature,
 			"node_ids":              grantNodeIDs(consent.Grants),
+			"node_rows":             nodeRows,
 			"grant_rows":            grantRows,
 			"log_rows":              logRows,
 		})

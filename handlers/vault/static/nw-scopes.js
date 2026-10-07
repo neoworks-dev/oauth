@@ -1,10 +1,9 @@
-// Scope helpers for the consent screen.
+// Scope helpers for the consent screen. A collection is the registry path
+// `@scope/name` of a published schema; `collections` maps each to its registry
+// entry ({ title, descriptor }).
 
-import { ROOT_COLLECTIONS } from "./nw-nodes.js";
-
-const COLLECTION_LABELS = {
-  calendar: "calendars", contacts: "contacts", photos: "photos", files: "files", google: "linked Google account",
-};
+const COLLECTION_PATTERN = /^@[a-z0-9][a-z0-9._-]{0,63}\/[a-z0-9][a-z0-9._-]{0,63}$/;
+const COLLECTION_ACTIONS = ["read", "write", "share"];
 
 const IDENTITY_TEXT = {
   openid: "Know who you are",
@@ -12,16 +11,30 @@ const IDENTITY_TEXT = {
   email: "See your email address",
 };
 
-export function collectionOf(scope) {
-  const [collection] = scope.split(":");
-  if (scope.includes(":") && ROOT_COLLECTIONS.includes(collection)) {
-    return collection;
+function splitScope(scope) {
+  const separator = scope.lastIndexOf(":");
+  if (separator < 0) {
+    return null;
   }
-  return null;
+  const collection = scope.slice(0, separator);
+  const action = scope.slice(separator + 1);
+  if (!COLLECTION_PATTERN.test(collection) || !COLLECTION_ACTIONS.includes(action)) {
+    return null;
+  }
+  return { collection, action };
+}
+
+export function collectionOf(scope) {
+  const parts = splitScope(scope);
+  if (parts === null) {
+    return null;
+  }
+  return parts.collection;
 }
 
 export function isShareScope(scope) {
-  return scope.endsWith(":share") && collectionOf(scope) !== null;
+  const parts = splitScope(scope);
+  return parts !== null && parts.action === "share";
 }
 
 // shareCollections lists the collections an app asks to share with other people.
@@ -29,42 +42,46 @@ export function shareCollections(scopes) {
   return scopes.filter(isShareScope).map(collectionOf);
 }
 
-export function describeShare(collection) {
-  return "Share your " + COLLECTION_LABELS[collection] + " with other people";
+// collectionLabel is the collection's registry title, or its path when the
+// registry has none.
+export function collectionLabel(collection, collections) {
+  const entry = collections[collection];
+  if (entry && entry.title) {
+    return entry.title;
+  }
+  return collection;
+}
+
+export function describeShare(collection, collections) {
+  return "Share your " + collectionLabel(collection, collections) + " with other people";
 }
 
 // collectionRoles maps each requested collection to the highest role requested.
 export function collectionRoles(scopes) {
   const roles = {};
   for (const scope of scopes) {
-    const collection = collectionOf(scope);
-    if (collection === null || isShareScope(scope)) {
+    const parts = splitScope(scope);
+    if (parts === null || parts.action === "share") {
       continue;
     }
-    if (scope.endsWith(":write") || roles[collection] === undefined) {
-      roles[collection] = scope.split(":")[1];
+    if (parts.action === "write" || roles[parts.collection] === undefined) {
+      roles[parts.collection] = parts.action;
     }
   }
   return roles;
 }
 
-export function describeScope(scope) {
-  const collection = collectionOf(scope);
-  if (collection === null) {
+export function describeScope(scope, collections) {
+  const parts = splitScope(scope);
+  if (parts === null) {
     return IDENTITY_TEXT[scope];
   }
-  if (isShareScope(scope)) {
-    return describeShare(collection);
+  if (parts.action === "share") {
+    return describeShare(parts.collection, collections);
   }
-  if (collection === "google") {
-    return "Access your linked Google account";
+  const label = collectionLabel(parts.collection, collections);
+  if (parts.action === "write") {
+    return "View and change your " + label;
   }
-  if (scope.endsWith(":write")) {
-    return "View and change your " + COLLECTION_LABELS[collection];
-  }
-  return "View your " + COLLECTION_LABELS[collection];
-}
-
-export function collectionLabel(collection) {
-  return COLLECTION_LABELS[collection];
+  return "View your " + label;
 }

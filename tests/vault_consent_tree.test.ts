@@ -19,6 +19,28 @@ beforeAll(async () => {
   recovery = await import(`${staticDirectory}/nw-recovery.js`);
 });
 
+const calendar = "@neoworks/calendar";
+const contacts = "@neoworks/contacts";
+const collections = [calendar, contacts];
+const labels = { [calendar]: "Calendar", [contacts]: "Contacts" };
+
+// A container model whose field 1 is its title, as a collection publishes it.
+const descriptor = JSON.stringify({
+  descriptorVersion: 1, enums: [],
+  models: [{ name: "Folder", fields: [{ ordinal: 1, name: "name", container: { kind: "singular", nullable: false }, value: { kind: "scalar", scalar: "string" }, required: true, constraints: {} }] }],
+  nodes: [{ kind: "container", model: "Folder", facets: [{ name: "default", tag: 1, fields: [1] }], searchable: [], title: 1, timeRange: null }],
+});
+const schemas = {
+  [calendar]: { collection: calendar, title: "Calendar", descriptor },
+  [contacts]: { collection: contacts, title: "Contacts", descriptor },
+};
+
+// folderMessage is the OpenSchema wire message of a Folder: field 1, a string.
+function folderMessage(name: string) {
+  const text = primitives.utf8(name);
+  return primitives.concatBytes(Uint8Array.from([0x0a, text.length]), text);
+}
+
 // ownerTree builds what GET /vault/tree returns: roots, one container under
 // the calendar root and a nested one, with the owner's root grants.
 function ownerTree() {
@@ -27,7 +49,7 @@ function ownerTree() {
   const treeNodes: any[] = [];
   const grants: any[] = [];
   const keys: Record<string, Uint8Array> = {};
-  for (const collection of nodes.ROOT_COLLECTIONS) {
+  for (const collection of collections) {
     const { node, nodeKey } = nodes.createRootNode({ userId, collection, identity });
     treeNodes.push(node);
     keys[collection] = nodeKey;
@@ -37,11 +59,11 @@ function ownerTree() {
     });
     grants.push({ nodeId: node.id, role: "write", epoch: 1, wrappedKeys: grant.wrappedKeys });
   }
-  const calendarRoot = treeNodes.find((node) => node.collection === "calendar");
-  const work = container("Work", calendarRoot, keys.calendar, userId);
+  const calendarRoot = treeNodes.find((node) => node.collection === calendar);
+  const work = container("Work", calendarRoot, keys[calendar], userId);
   const nested = container("Projects", work.node, work.key, userId);
   treeNodes.push(work.node, nested.node);
-  return { identity, tree: { nodes: treeNodes, grants }, work, nested, calendarRoot };
+  return { identity, tree: { nodes: treeNodes, grants, schemas }, work, nested, calendarRoot };
 }
 
 function container(name: string, parent: any, parentKey: Uint8Array, userId: string, baseSeq = 0) {
@@ -53,7 +75,8 @@ function container(name: string, parent: any, parentKey: Uint8Array, userId: str
   node.wrappedKey = primitives.encodeBase64Url(nodes.wrapNodeKey(parentKey, key, {
     id: node.id, parentId: parent.id, epoch: 1, parentEpoch: parent.epoch,
   }));
-  node.content = [{ facet: 0, ciphertext: primitives.encodeBase64Url(nodes.encryptFacet(key, node, 0, { name })) }];
+  const ciphertext = nodes.encryptFacet(key, node, 1, folderMessage(name));
+  node.content = primitives.encodeBase64Url(nodes.assembleContent([{ tag: 1, ciphertext }]));
   return { node, key };
 }
 
@@ -61,7 +84,7 @@ describe("consent tree", () => {
   test("opens root keys with the identity and walks down to nested containers", () => {
     const owned = ownerTree();
     const index = tree.buildKeyIndex(owned.tree, owned.identity);
-    expect(index.size).toBe(nodes.ROOT_COLLECTIONS.length + 2);
+    expect(index.size).toBe(collections.length + 2);
     expect(Buffer.from(index.get(owned.nested.node.id).key).equals(Buffer.from(owned.nested.key))).toBe(true);
   });
 
@@ -70,17 +93,17 @@ describe("consent tree", () => {
     const revised = container("Revised", owned.work.node, owned.work.key, "user-1", 3);
     const extended = { ...owned.tree, nodes: [...owned.tree.nodes, revised.node] };
     const index = tree.buildKeyIndex(extended, owned.identity);
-    const described = tree.describeCollections(extended, index, "user-1");
-    expect(described.calendar.containers.map((entry: any) => entry.name)).toContain("Revised");
+    const described = tree.describeCollections(extended, index, "user-1", collections, labels);
+    expect(described[calendar].containers.map((entry: any) => entry.name)).toContain("Revised");
   });
 
   test("describes collections with readable names and depth", () => {
     const owned = ownerTree();
     const index = tree.buildKeyIndex(owned.tree, owned.identity);
-    const described = tree.describeCollections(owned.tree, index, "user-1");
-    expect(Object.keys(described).sort()).toEqual(["calendar", "contacts", "files", "google", "photos"]);
-    expect(described.calendar.root.name).toBe("Calendar");
-    expect(described.calendar.containers.map((entry: any) => [entry.name, entry.depth])).toEqual([["Work", 1], ["Projects", 2]]);
+    const described = tree.describeCollections(owned.tree, index, "user-1", collections, labels);
+    expect(Object.keys(described).sort()).toEqual([calendar, contacts]);
+    expect(described[calendar].root.name).toBe("Calendar");
+    expect(described[calendar].containers.map((entry: any) => [entry.name, entry.depth])).toEqual([["Work", 1], ["Projects", 2]]);
   });
 
   test("a different identity cannot open any root", () => {
@@ -92,10 +115,10 @@ describe("consent tree", () => {
   test("whole-collection selection grants the root only", () => {
     const owned = ownerTree();
     const index = tree.buildKeyIndex(owned.tree, owned.identity);
-    const collectionTrees = tree.describeCollections(owned.tree, index, "user-1");
+    const collectionTrees = tree.describeCollections(owned.tree, index, "user-1", collections, labels);
     const install = { id: "install-1", encPub: primitives.encodeBase64Url(primitives.boxKeypair().publicKey) };
     const grants = tree.buildInstallGrants({
-      selections: { calendar: { whole: true, nodeIds: new Set() } }, collectionTrees, roles: { calendar: "write" },
+      selections: { [calendar]: { whole: true, nodeIds: new Set() } }, collectionTrees, roles: { [calendar]: "write" },
       index, held: tree.heldRoles(owned.tree, index), userId: "user-1", heads: {}, install, granter: { userId: "user-1", signSec: owned.identity.signSec }, certId: "cert-1",
     });
     expect(grants.length).toBe(1);
@@ -108,11 +131,11 @@ describe("consent tree", () => {
   test("install grants extend each node's access log head", () => {
     const owned = ownerTree();
     const index = tree.buildKeyIndex(owned.tree, owned.identity);
-    const collectionTrees = tree.describeCollections(owned.tree, index, "user-1");
+    const collectionTrees = tree.describeCollections(owned.tree, index, "user-1", collections, labels);
     const install = { id: "install-1", encPub: primitives.encodeBase64Url(primitives.boxKeypair().publicKey) };
     const headHash = primitives.encodeBase64Url(primitives.randomBytes(32));
     const grants = tree.buildInstallGrants({
-      selections: { calendar: { whole: true, nodeIds: new Set() } }, collectionTrees, roles: { calendar: "read" },
+      selections: { [calendar]: { whole: true, nodeIds: new Set() } }, collectionTrees, roles: { [calendar]: "read" },
       index, held: tree.heldRoles(owned.tree, index), userId: "user-1",
       heads: { [owned.calendarRoot.id]: { index: 0, entryHash: headHash } }, install,
       granter: { userId: "user-1", signSec: owned.identity.signSec }, certId: "cert-1",
@@ -124,11 +147,11 @@ describe("consent tree", () => {
   test("narrowed selection grants only the chosen containers", () => {
     const owned = ownerTree();
     const index = tree.buildKeyIndex(owned.tree, owned.identity);
-    const collectionTrees = tree.describeCollections(owned.tree, index, "user-1");
+    const collectionTrees = tree.describeCollections(owned.tree, index, "user-1", collections, labels);
     const install = { id: "install-1", encPub: primitives.encodeBase64Url(primitives.boxKeypair().publicKey) };
     const grants = tree.buildInstallGrants({
-      selections: { calendar: { whole: false, nodeIds: new Set([owned.work.node.id]) } }, collectionTrees,
-      roles: { calendar: "read" }, index, held: tree.heldRoles(owned.tree, index), userId: "user-1", heads: {}, install,
+      selections: { [calendar]: { whole: false, nodeIds: new Set([owned.work.node.id]) } }, collectionTrees,
+      roles: { [calendar]: "read" }, index, held: tree.heldRoles(owned.tree, index), userId: "user-1", heads: {}, install,
       granter: { userId: "user-1", signSec: owned.identity.signSec }, certId: "cert-1",
     });
     expect(grants.map((grant: any) => grant.nodeId)).toEqual([owned.work.node.id]);
@@ -139,7 +162,7 @@ describe("consent tree", () => {
 // given role, to the owner's tree.
 function sharedWithUser(owned: any, role: string) {
   const friend = account.createIdentity();
-  const { node, nodeKey } = nodes.createRootNode({ userId: "friend-1", collection: "calendar", identity: friend });
+  const { node, nodeKey } = nodes.createRootNode({ userId: "friend-1", collection: calendar, identity: friend });
   node.ownerEmail = "friend@example.com";
   const grant = nodes.createGrant({
     nodeId: node.id, nodeKey, epoch: 1, role, principalType: "user", principalId: "user-1",
@@ -150,26 +173,54 @@ function sharedWithUser(owned: any, role: string) {
   return node;
 }
 
+describe("roots made by the consent", () => {
+  test("a requested collection without a root gets one with the owner's genesis grant", () => {
+    const owned = ownerTree();
+    const index = tree.buildKeyIndex(owned.tree, owned.identity);
+    const requested = [calendar, "@neoworks/photos"];
+    const collectionTrees = tree.describeCollections(owned.tree, index, "user-1", requested, { ...labels, "@neoworks/photos": "Photos" });
+    const planned = tree.planNewRoots({
+      collections: requested, collectionTrees, userId: "user-1", identity: owned.identity, labels: { "@neoworks/photos": "Photos" },
+    });
+    expect(planned.roots.length).toBe(1);
+    const root = planned.roots[0];
+    expect(root.node).toMatchObject({ collection: "@neoworks/photos", kind: "root", content: "", targetId: null });
+    expect(root.grant).toMatchObject({ nodeId: root.node.id, principalId: "user-1", role: "write", logIndex: 0 });
+    expect(planned.trees["@neoworks/photos"].root.name).toBe("Photos");
+    const signature = primitives.decodeBase64Url(root.node.signature);
+    expect(primitives.verify(owned.identity.signPub, nodes.nodeWriteMessage(root.node), signature)).toBe(true);
+
+    const install = { id: "install-1", encPub: primitives.encodeBase64Url(primitives.boxKeypair().publicKey) };
+    const grants = tree.buildInstallGrants({
+      selections: { "@neoworks/photos": { whole: true, nodeIds: new Set() } }, collectionTrees: planned.trees,
+      roles: { "@neoworks/photos": "read" }, index: planned.keys, held: new Map(), userId: "user-1", heads: planned.heads,
+      install, granter: { userId: "user-1", signSec: owned.identity.signSec }, certId: "cert-1",
+    });
+    expect(grants[0].logIndex).toBe(1);
+    expect(grants[0].prevHash).toBe(planned.heads[root.node.id].entryHash);
+  });
+});
+
 describe("nodes shared with the user", () => {
   test("lists shared entry points apart from the user's own roots", () => {
     const owned = ownerTree();
     const sharedRoot = sharedWithUser(owned, "read");
     const index = tree.buildKeyIndex(owned.tree, owned.identity);
-    const described = tree.describeCollections(owned.tree, index, "user-1");
-    expect(described.calendar.root.id).toBe(owned.calendarRoot.id);
+    const described = tree.describeCollections(owned.tree, index, "user-1", collections, labels);
+    expect(described[calendar].root.id).toBe(owned.calendarRoot.id);
     const shared = tree.describeSharedNodes(owned.tree, index, "user-1");
-    expect(shared.calendar.map((entry: any) => [entry.id, entry.ownerEmail])).toEqual([[sharedRoot.id, "friend@example.com"]]);
+    expect(shared[calendar].map((entry: any) => [entry.id, entry.ownerEmail])).toEqual([[sharedRoot.id, "friend@example.com"]]);
   });
 
   test("a read share is passed to the install as read even when the scope allows write", () => {
     const owned = ownerTree();
     const sharedRoot = sharedWithUser(owned, "read");
     const index = tree.buildKeyIndex(owned.tree, owned.identity);
-    const collectionTrees = tree.describeCollections(owned.tree, index, "user-1");
+    const collectionTrees = tree.describeCollections(owned.tree, index, "user-1", collections, labels);
     const install = { id: "install-1", encPub: primitives.encodeBase64Url(primitives.boxKeypair().publicKey) };
     const grants = tree.buildInstallGrants({
-      selections: { calendar: { whole: false, nodeIds: new Set([sharedRoot.id]) } }, collectionTrees,
-      roles: { calendar: "write" }, index, held: tree.heldRoles(owned.tree, index), userId: "user-1", heads: {}, install,
+      selections: { [calendar]: { whole: false, nodeIds: new Set([sharedRoot.id]) } }, collectionTrees,
+      roles: { [calendar]: "write" }, index, held: tree.heldRoles(owned.tree, index), userId: "user-1", heads: {}, install,
       granter: { userId: "user-1", signSec: owned.identity.signSec }, certId: "cert-1",
     });
     expect(grants.map((grant: any) => [grant.nodeId, grant.role])).toEqual([[sharedRoot.id, "read"]]);
@@ -179,11 +230,11 @@ describe("nodes shared with the user", () => {
     const owned = ownerTree();
     const sharedRoot = sharedWithUser(owned, "write");
     const index = tree.buildKeyIndex(owned.tree, owned.identity);
-    const collectionTrees = tree.describeCollections(owned.tree, index, "user-1");
+    const collectionTrees = tree.describeCollections(owned.tree, index, "user-1", collections, labels);
     const install = { id: "install-1", encPub: primitives.encodeBase64Url(primitives.boxKeypair().publicKey) };
     const grants = tree.buildInstallGrants({
-      selections: { calendar: { whole: false, nodeIds: new Set([sharedRoot.id]) } }, collectionTrees,
-      roles: { calendar: "write" }, index, held: tree.heldRoles(owned.tree, index), userId: "user-1", heads: {}, install,
+      selections: { [calendar]: { whole: false, nodeIds: new Set([sharedRoot.id]) } }, collectionTrees,
+      roles: { [calendar]: "write" }, index, held: tree.heldRoles(owned.tree, index), userId: "user-1", heads: {}, install,
       granter: { userId: "user-1", signSec: owned.identity.signSec }, certId: "cert-1",
     });
     expect(grants[0].role).toBe("write");
@@ -226,5 +277,21 @@ describe("recovery words", () => {
 
   test("an unknown word is rejected", () => {
     expect(() => recovery.wordsToBytes(["airport", "notaword"])).toThrow();
+  });
+});
+
+describe("titles", () => {
+  test("the title field is found after fields of every wire type", async () => {
+    const titles = await import(`${staticDirectory}/nw-titles.js`);
+    const title = primitives.utf8("Groceries");
+    const message = primitives.concatBytes(
+      Uint8Array.from([0x10, 0x96, 0x01]),
+      Uint8Array.from([0x19, 1, 2, 3, 4, 5, 6, 7, 8]),
+      Uint8Array.from([0x25, 1, 2, 3, 4]),
+      Uint8Array.from([0x32, 0x02, 0x68, 0x69]),
+      Uint8Array.from([0x3a, title.length]), title,
+    );
+    expect(titles.readStringField(message, 7)).toBe("Groceries");
+    expect(titles.readStringField(message, 9)).toBeNull();
   });
 });

@@ -142,22 +142,20 @@ func (server *Server) handleBundle(response http.ResponseWriter, request *http.R
 	writeJSON(response, http.StatusOK, bundle)
 }
 
-// vaultTokenScopes are the scopes of the vault's own user-principal token.
-func vaultTokenScopes() []string {
-	granted := []string{"openid", "profile", "email"}
-	for _, collection := range scopes.Collections {
-		granted = append(granted, collection+":read", collection+":write")
-	}
-	return granted
-}
-
 // handleToken mints a short-lived access token for the vault to call the API
-// as the user principal. It carries no install.
+// as the user principal. It carries no install, and reads and writes every
+// collection the user has data in.
 func (server *Server) handleToken(response http.ResponseWriter, request *http.Request) {
+	userID := sessionFrom(request).Session.UserID
+	collections, err := server.store.UserCollections(request.Context(), userID)
+	if err != nil {
+		writeError(response, http.StatusInternalServerError, "server_error")
+		return
+	}
 	accessToken, _, err := server.issuer.IssueAccessToken(tokens.AccessTokenParams{
-		UserID:   sessionFrom(request).Session.UserID,
+		UserID:   userID,
 		ClientID: tokens.VaultClientID,
-		Scopes:   vaultTokenScopes(),
+		Scopes:   append([]string{"openid", "profile", "email"}, scopes.ReadWrite(collections)...),
 	})
 	if err != nil {
 		writeError(response, http.StatusInternalServerError, "server_error")

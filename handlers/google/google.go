@@ -41,7 +41,7 @@ func ConfigFromEnv() Config {
 		RedirectURI:    strings.TrimSpace(os.Getenv("GOOGLE_REDIRECT_URI")),
 		WebCalendarURL: config.ServiceURL("calendar") + "/google/callback",
 		TokenEndpoint:  defaultTokenEndpoint,
-		AcceptedScopes: []string{"calendar:read", "calendar:write"},
+		AcceptedScopes: []string{"@neoworks/calendar:read", "@neoworks/calendar:write"},
 	}
 }
 

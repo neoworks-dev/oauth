@@ -1,11 +1,11 @@
-// Reproduces the contract test vectors (packages/libneoworks/test-vectors/v1.json)
+// Reproduces the contract test vectors (packages/libneoworks/test-vectors/v2.json)
 // with the account vault's JavaScript. The suite is skipped when the vectors are
 // not checked out next to this repository.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import sodium from "libsodium-wrappers-sumo";
 
-const vectorsPath = new URL("../../../packages/libneoworks/test-vectors/v1.json", import.meta.url).pathname;
+const vectorsPath = new URL("../../../packages/libneoworks/test-vectors/v2.json", import.meta.url).pathname;
 const staticDirectory = "../handlers/vault/static";
 (globalThis as any).sodium = sodium;
 
@@ -110,15 +110,24 @@ run("contract vectors", () => {
     expect(hex(nodes.nodeKeyAad(info))).toBe(v.wrappedKeyAadHex);
     const unwrapped = nodes.unwrapNodeKey(fromHex(v.rootNodeKeyHex), primitives.decodeBase64Url(node.wrappedKey), info);
     expect(hex(unwrapped)).toBe(v.itemNodeKeyHex);
-    node.content.forEach((entry: any, position: number) => {
-      const aad = nodes.contentAad({ id: node.id, collection: node.collection, facet: entry.facet, epoch: node.epoch, baseSeq: node.baseSeq, deleted: node.deleted });
+    const facets = nodes.parseContent(primitives.decodeBase64Url(node.content));
+    expect(facets.map((entry: any) => entry.tag)).toEqual(v.facetTags);
+    facets.forEach((entry: any, position: number) => {
+      const aad = nodes.contentAad({ id: node.id, collection: node.collection, tag: entry.tag, epoch: node.epoch, baseSeq: node.baseSeq, deleted: node.deleted });
       expect(hex(aad)).toBe(v.facetAadHex[position]);
-      const value = nodes.decryptFacet(unwrapped, node, entry.facet, primitives.decodeBase64Url(entry.ciphertext));
-      expect(JSON.stringify(value)).toBe(v.facetPlaintextUtf8[position]);
+      expect(hex(nodes.facetKey(unwrapped, entry.tag))).toBe(v.facetKeyHex[position]);
+      expect(hex(nodes.decryptFacet(unwrapped, node, entry.tag, entry.ciphertext))).toBe(v.facetPlaintextHex[position]);
     });
+    expect(hex(nodes.assembleContent(facets))).toBe(v.contentHex);
     expect(hex(nodes.nodeWriteMessage(node))).toBe(v.writeMessageHex);
     const signature = primitives.sign(fromHex(v.authorSignSecHex), nodes.nodeWriteMessage(node));
     expect(hex(signature)).toBe(v.writeSignatureHex);
+  });
+
+  test("a shortcut's write message covers its target", () => {
+    const v = vectors.shortcut;
+    expect(hex(nodes.nodeWriteMessage(v.nodeJson))).toBe(v.writeMessageHex);
+    expect(hex(primitives.sign(fromHex(vectors.node.authorSignSecHex), nodes.nodeWriteMessage(v.nodeJson)))).toBe(v.writeSignatureHex);
   });
 
   test("blob canonical bytes", () => {

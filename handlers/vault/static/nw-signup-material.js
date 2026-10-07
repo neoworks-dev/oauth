@@ -3,28 +3,13 @@
 import {
   buildBundle, createIdentity, deriveRecoveryKek, derivePasswordKeys, newPwhashParams,
 } from "./nw-account.js";
-import { ROOT_COLLECTIONS, createGrant, createRootNode, nextLogPosition } from "./nw-nodes.js";
 import { bytesToWords } from "./nw-recovery.js";
 import { decodeBase64Url, encodeBase64Url, randomBytes, seal, wipe } from "./nw-primitives.js";
 
-function buildRoots(userId, identity) {
-  const nodes = [];
-  const grants = [];
-  for (const collection of ROOT_COLLECTIONS) {
-    const { node, nodeKey } = createRootNode({ userId, collection, identity });
-    nodes.push(node);
-    grants.push(createGrant({
-      nodeId: node.id, nodeKey, epoch: node.epoch, role: "write", principalType: "user", principalId: userId,
-      principalEncPub: identity.encPub, granter: { userId, signSec: identity.signSec }, position: nextLogPosition(null),
-    }));
-    wipe(nodeKey);
-  }
-  return { nodes, grants };
-}
-
 // createSignupMaterial derives all keys for a new account. It returns the
 // request body for POST /vault/signup, the unlocked secrets to keep in memory
-// and the recovery words to show once.
+// and the recovery words to show once. Collection roots are created by the
+// first consent that asks for each collection.
 export function createSignupMaterial({ email, firstName, lastName, password, deviceId, deviceName, escrowPublicKey }) {
   const userId = crypto.randomUUID();
   const amk = randomBytes(32);
@@ -36,9 +21,8 @@ export function createSignupMaterial({ email, firstName, lastName, password, dev
     userId, version: 1, amk, identity,
     passwordKek: passwordKeys.passwordKEK, recoveryKek: deriveRecoveryKek(recoveryEntropy),
   });
-  const { nodes, grants } = buildRoots(userId, identity);
   const request = {
-    email, firstName, lastName, userId, authKey: encodeBase64Url(passwordKeys.authKey), pwhash, bundle, nodes, grants,
+    email, firstName, lastName, userId, authKey: encodeBase64Url(passwordKeys.authKey), pwhash, bundle,
     device: { id: deviceId, name: deviceName },
   };
   if (escrowPublicKey) {

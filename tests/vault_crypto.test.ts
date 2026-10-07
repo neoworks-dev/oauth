@@ -90,19 +90,34 @@ describe("AMK wraps", () => {
 });
 
 describe("nodes", () => {
-  test("a root node's content decrypts with its key and nothing else", () => {
+  test("a root carries no content", () => {
     const identity = account.createIdentity();
-    const { node, nodeKey } = nodes.createRootNode({ userId: "user-1", collection: "calendar", identity });
-    const ciphertext = primitives.decodeBase64Url(node.content[0].ciphertext);
+    const { node } = nodes.createRootNode({ userId: "user-1", collection: "@neoworks/calendar", identity });
+    expect(node).toMatchObject({ content: "", blob: null, targetId: null, targetRole: null, wrappedKey: null });
+  });
+
+  test("a facet decrypts with its node key, tag and position and nothing else", () => {
+    const key = primitives.randomBytes(32);
+    const node = { id: "node-1", collection: "@neoworks/calendar", epoch: 1, baseSeq: 0, deleted: false };
+    const plaintext = Uint8Array.from([0x0a, 0x03, 0x61, 0x62, 0x63]);
+    const ciphertext = nodes.encryptFacet(key, node, 488337835, plaintext);
     expect(ciphertext.length % 256).toBe(24 + 16);
-    expect(nodes.decryptFacet(nodeKey, node, 0, ciphertext)).toEqual({ name: "Calendar" });
-    expect(() => nodes.decryptFacet(nodeKey, { ...node, epoch: 2 }, 0, ciphertext)).toThrow();
-    expect(() => nodes.decryptFacet(primitives.randomBytes(32), node, 0, ciphertext)).toThrow();
+    expect(Buffer.from(nodes.decryptFacet(key, node, 488337835, ciphertext)).equals(Buffer.from(plaintext))).toBe(true);
+    expect(() => nodes.decryptFacet(key, node, 1, ciphertext)).toThrow();
+    expect(() => nodes.decryptFacet(key, { ...node, epoch: 2 }, 488337835, ciphertext)).toThrow();
+    expect(() => nodes.decryptFacet(primitives.randomBytes(32), node, 488337835, ciphertext)).toThrow();
+  });
+
+  test("content frames facets by ascending tag and parses back", () => {
+    const facets = [{ tag: 488337835, ciphertext: Uint8Array.from([7, 8]) }, { tag: 1, ciphertext: Uint8Array.from([9]) }];
+    const parsed = nodes.parseContent(nodes.assembleContent(facets));
+    expect(parsed.map((entry: any) => [entry.tag, Array.from(entry.ciphertext)])).toEqual([[1, [9]], [488337835, [7, 8]]]);
+    expect(() => nodes.parseContent(Uint8Array.from([0x08, 0x01]))).toThrow();
   });
 
   test("the root signature verifies over the write message", () => {
     const identity = account.createIdentity();
-    const { node } = nodes.createRootNode({ userId: "user-1", collection: "files", identity });
+    const { node } = nodes.createRootNode({ userId: "user-1", collection: "@neoworks/files", identity });
     const signature = primitives.decodeBase64Url(node.signature);
     expect(primitives.verify(identity.signPub, nodes.nodeWriteMessage(node), signature)).toBe(true);
     expect(primitives.verify(identity.signPub, nodes.nodeWriteMessage({ ...node, epoch: 2 }), signature)).toBe(false);

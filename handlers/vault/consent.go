@@ -45,6 +45,8 @@ type consentRequest struct {
 	Certificate          string         `json:"certificate"`
 	CertificateSignature string         `json:"certificateSignature"`
 	Grants               []grantPayload `json:"grants"`
+	// Roots are the roots of approved collections the user had none in yet.
+	Roots []rootPayload `json:"roots"`
 }
 
 // consentContext is the verified state a consent is checked against.
@@ -67,6 +69,10 @@ func (server *Server) handleConsent(response http.ResponseWriter, request *http.
 	}
 	consent, ok := server.consentContextFor(response, request, body)
 	if !ok {
+		return
+	}
+	if !consent.bindsInstall && len(body.Roots) > 0 {
+		writeError(response, http.StatusBadRequest, "invalid_roots")
 		return
 	}
 	if consent.bindsInstall {
@@ -96,6 +102,9 @@ func (server *Server) consentContextFor(response http.ResponseWriter, request *h
 		writeError(response, http.StatusBadRequest, "install_required")
 		return consentContext{}, false
 	}
+	if !server.collectionsPublished(response, request, body.Scopes) {
+		return consentContext{}, false
+	}
 	bundle, err := server.store.GetKeyBundle(request.Context(), userID)
 	if err != nil {
 		writeError(response, http.StatusInternalServerError, "server_error")
@@ -123,7 +132,12 @@ func (server *Server) storeInstallConsent(response http.ResponseWriter, request 
 	if !server.installAvailable(response, request, consent) {
 		return false
 	}
-	grants, err := server.verifiedInstallGrants(request, consent, certificate, body.Grants)
+	roots, err := server.verifiedNewRoots(request, consent, body.Roots)
+	if err != nil {
+		writeError(response, http.StatusBadRequest, "invalid_roots")
+		return false
+	}
+	grants, err := server.verifiedInstallGrants(request, consent, certificate, body.Grants, roots)
 	if errors.Is(err, errLogHeadMoved) {
 		writeError(response, http.StatusConflict, "log_head_moved")
 		return false
@@ -135,6 +149,8 @@ func (server *Server) storeInstallConsent(response http.ResponseWriter, request 
 	err = server.store.SaveInstallConsent(request.Context(), store.InstallConsent{
 		Install:     installRecord(consent),
 		Certificate: store.Certificate{ID: certificate.CertID, UserID: consent.userID, InstallID: certificate.InstallID, Bytes: body.Certificate, Signature: body.CertificateSignature},
+		Roots:       rootNodes(roots),
+		RootGrants:  rootGrants(roots),
 		Grants:      grants,
 	})
 	if err != nil {
@@ -233,7 +249,7 @@ func checkCertificateTimes(now time.Time, document certificateDocument) error {
 
 // verifiedInstallGrants checks every install grant against the user's nodes,
 // the approved scopes and the user's signature.
-func (server *Server) verifiedInstallGrants(request *http.Request, consent consentContext, certificate *certificateDocument, grants []grantPayload) ([]store.AccessGrant, error) {
+func (server *Server) verifiedInstallGrants(request *http.Request, consent consentContext, certificate *certificateDocument, grants []grantPayload, roots []newRoot) ([]store.AccessGrant, error) {
 	roles := scopes.CollectionRoles(consent.approved)
 	if len(grants) > maxGrantsPerConsent || (len(roles) > 0 && len(grants) == 0) {
 		return nil, errInvalidPayload
@@ -241,6 +257,12 @@ func (server *Server) verifiedInstallGrants(request *http.Request, consent conse
 	nodes, err := server.grantedNodes(request, grants)
 	if err != nil {
 		return nil, err
+	}
+	for _, root := range roots {
+		nodes[root.Node.ID] = store.NodeOwnership{
+			ID: root.Node.ID, OwnerID: root.Node.OwnerID, Collection: root.Node.Collection,
+			Kind: root.Node.Kind, Epoch: root.Node.Epoch, Ancestors: []string{},
+		}
 	}
 	stored := make([]store.AccessGrant, 0, len(grants))
 	seenNodes := map[string]bool{}
@@ -267,7 +289,7 @@ func (server *Server) verifiedInstallGrants(request *http.Request, consent conse
 			return nil, errInvalidPayload
 		}
 	}
-	if err := server.checkLogHeads(request, stored); err != nil {
+	if err := server.checkLogHeads(request, stored, roots); err != nil {
 		return nil, err
 	}
 	return stored, nil
@@ -276,7 +298,8 @@ func (server *Server) verifiedInstallGrants(request *http.Request, consent conse
 // checkLogHeads requires every grant's entry to extend its node's access log
 // head. A concurrent append to the same index still fails on the log's unique
 // (node_id, index) index when the consent is written.
-func (server *Server) checkLogHeads(request *http.Request, grants []store.AccessGrant) error {
+// The head of a new root is the owner grant that comes with it.
+func (server *Server) checkLogHeads(request *http.Request, grants []store.AccessGrant, roots []newRoot) error {
 	nodeIDs := make([]string, 0, len(grants))
 	for _, grant := range grants {
 		nodeIDs = append(nodeIDs, grant.NodeID)
@@ -284,6 +307,9 @@ func (server *Server) checkLogHeads(request *http.Request, grants []store.Access
 	heads, err := server.store.ListLogHeads(request.Context(), nodeIDs)
 	if err != nil {
 		return err
+	}
+	for _, root := range roots {
+		heads[root.Node.ID] = store.LogHead{Index: root.Grant.LogIndex, EntryHash: root.Grant.EntryHash}
 	}
 	for _, grant := range grants {
 		if !extendsHead(grant, heads) {

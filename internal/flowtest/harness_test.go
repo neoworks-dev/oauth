@@ -72,6 +72,9 @@ func newSystem(t *testing.T) *system {
 		VaultURL: vaultOrigin, APIURL: "http://api.test", OAuthURL: "http://oauth.test",
 		Debug: true, PreloginSecret: []byte("secret"), AuthenticatorClientID: "neoworks-authenticator",
 	}, testSurreal.Store, redis, issuer, mail.NewSender(mail.Config{}), vaulthandler.NoEscrow{})
+	if err := testSurreal.PublishCollections(testsupport.TestCollections); err != nil {
+		t.Fatal(err)
+	}
 	clientID := "app-" + testsupport.NewAccount("x@example.com").UserID[:8]
 	if err := testSurreal.CreateClient(clientID, []string{appRedirect}, allScopes(), false); err != nil {
 		t.Fatal(err)
@@ -88,9 +91,9 @@ func newSystem(t *testing.T) *system {
 func allScopes() []string {
 	return []string{
 		"openid", "profile", "email",
-		"calendar:read", "calendar:write", "contacts:read", "contacts:write",
-		"photos:read", "photos:write", "files:read", "files:write",
-		"calendar:share", "contacts:share",
+		"@neoworks/calendar:read", "@neoworks/calendar:write", "@neoworks/contacts:read", "@neoworks/contacts:write",
+		"@neoworks/photos:read", "@neoworks/photos:write", "@neoworks/files:read", "@neoworks/files:write",
+		"@neoworks/calendar:share", "@neoworks/contacts:share",
 	}
 }
 
@@ -180,8 +183,8 @@ func (system *system) issueTokens(account *testsupport.Account) testsupport.Resp
 	system.t.Helper()
 	install := testsupport.NewInstall()
 	verifier, challenge := pkce()
-	location := system.authorize(system.authorizeParams(install, challenge, "photos:read"))
-	body := consentFor(account, install, system.clientID, challengeID(location), []string{"photos:read"}, map[string]string{"photos": "read"})
+	location := system.authorize(system.authorizeParams(install, challenge, "@neoworks/photos:read"))
+	body := consentFor(account, install, system.clientID, challengeID(location), []string{"@neoworks/photos:read"}, map[string]string{"@neoworks/photos": "read"})
 	consent := system.browser.Do("POST", "/vault/consent", body, nil)
 	if consent.Status != 200 {
 		system.t.Fatalf("consent: %d %s", consent.Status, consent.Raw)
@@ -211,4 +214,25 @@ func verifyWithJWK(rawToken string, key map[string]any) (jwt.MapClaims, error) {
 	claims := jwt.MapClaims{}
 	_, err := jwt.ParseWithClaims(rawToken, claims, func(*jwt.Token) (any, error) { return publicKey, nil }, jwt.WithValidMethods([]string{"ES256"}))
 	return claims, err
+}
+
+// createRoots runs a consent for every test collection so the account owns
+// their roots, as after using its first apps. The account must be the one
+// signed in.
+func (system *system) createRoots(account *testsupport.Account) {
+	system.t.Helper()
+	install := testsupport.NewInstall()
+	_, challenge := pkce()
+	roles := map[string]string{}
+	grantScopes := []string{}
+	for _, collection := range testsupport.TestCollections {
+		roles[collection] = "write"
+		grantScopes = append(grantScopes, collection+":read", collection+":write")
+	}
+	location := system.authorize(system.authorizeParams(install, challenge, strings.Join(grantScopes, " ")))
+	body := consentFor(account, install, system.clientID, challengeID(location), grantScopes, roles)
+	if response := system.browser.Do("POST", "/vault/consent", body, nil); response.Status != 200 {
+		system.t.Fatalf("consent creating roots: %d %s", response.Status, response.Raw)
+	}
+	account.CommitGrants()
 }

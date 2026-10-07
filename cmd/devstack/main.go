@@ -87,9 +87,12 @@ func startEscrow(inbox *mailbox, vaultURL string, port int, waiting time.Duratio
 func seedClients(surreal *testsupport.Surreal, oauthURL string) {
 	redirects := []string{"http://localhost:19000/callback"}
 	scopes := []string{
-		"openid", "profile", "email", "calendar:read", "calendar:write", "contacts:read", "contacts:write",
-		"photos:read", "photos:write", "files:read", "files:write",
-		"calendar:share",
+		"openid", "profile", "email", "@neoworks/calendar:read", "@neoworks/calendar:write", "@neoworks/contacts:read", "@neoworks/contacts:write",
+		"@neoworks/photos:read", "@neoworks/photos:write", "@neoworks/files:read", "@neoworks/files:write",
+		"@neoworks/calendar:share",
+	}
+	if err := surreal.PublishCollections(testsupport.TestCollections); err != nil {
+		log.Fatal(err)
 	}
 	if err := surreal.CreateClient("e2e-app", redirects, scopes, false); err != nil {
 		log.Fatal(err)

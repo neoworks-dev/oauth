@@ -2,34 +2,79 @@
 
 import {
   absentField, aead, aeadOpen, concatBytes, decodeBase64Url, encodeBase64Url, fieldBool, fieldString,
-  fieldU32, fieldU64, hash, kdf, pad, randomBytes, seal, sign, tlv, unpad, unwrap, utf8, utf8Decode, wrap,
+  fieldU32, fieldU64, hash, kdf, pad, randomBytes, seal, sign, tlv, unpad, unwrap, utf8, wrap,
 } from "./nw-primitives.js";
 
 const FACET_CONTEXT = "nwfacet1";
-export const ROOT_COLLECTIONS = ["calendar", "contacts", "photos", "files", "google"];
-export const ROOT_NAMES = {
-  calendar: "Calendar", contacts: "Contacts", photos: "Photos", files: "Files", google: "Google account",
-};
+const LEN_WIRE_TYPE = 2;
 
-export function facetKey(nodeKey, facet) {
-  return kdf(nodeKey, facet, FACET_CONTEXT);
+export function facetKey(nodeKey, tag) {
+  return kdf(nodeKey, tag, FACET_CONTEXT);
 }
 
-export function contentAad({ id, collection, facet, epoch, baseSeq, deleted }) {
-  return tlv("nw-node-content-v1", fieldString(id), fieldString(collection), fieldU32(facet),
+export function contentAad({ id, collection, tag, epoch, baseSeq, deleted }) {
+  return tlv("nw-node-content-v2", fieldString(id), fieldString(collection), fieldU32(tag),
     fieldU32(epoch), fieldU64(baseSeq), fieldBool(deleted));
 }
 
-export function encryptFacet(nodeKey, node, facet, value) {
-  const aad = contentAad({ ...node, facet });
-  const plaintext = pad(utf8(JSON.stringify(value)));
-  return aead(facetKey(nodeKey, facet), plaintext, aad);
+// encryptFacet seals one facet's plaintext, the OpenSchema wire bytes of that
+// facet's fields.
+export function encryptFacet(nodeKey, node, tag, plaintext) {
+  return aead(facetKey(nodeKey, tag), pad(plaintext), contentAad({ ...node, tag }));
 }
 
-export function decryptFacet(nodeKey, node, facet, ciphertext) {
-  const aad = contentAad({ ...node, facet });
-  const padded = aeadOpen(facetKey(nodeKey, facet), ciphertext, aad);
-  return JSON.parse(utf8Decode(unpad(padded)));
+export function decryptFacet(nodeKey, node, tag, ciphertext) {
+  return unpad(aeadOpen(facetKey(nodeKey, tag), ciphertext, contentAad({ ...node, tag })));
+}
+
+// readVarint returns the varint at offset and the offset after it.
+export function readVarint(bytes, offset) {
+  let value = 0;
+  let scale = 1;
+  for (let index = offset; index < bytes.length && index < offset + 10; index += 1) {
+    value += (bytes[index] & 0x7f) * scale;
+    scale *= 128;
+    if (bytes[index] < 0x80) {
+      return { value, next: index + 1 };
+    }
+  }
+  throw new Error("truncated varint");
+}
+
+function writeVarint(value) {
+  const bytes = [];
+  let remaining = value;
+  while (remaining >= 0x80) {
+    bytes.push((remaining % 128) | 0x80);
+    remaining = Math.floor(remaining / 128);
+  }
+  bytes.push(remaining);
+  return Uint8Array.from(bytes);
+}
+
+// parseContent splits node content into its facets: one LEN field per tag,
+// ascending, whose body is that facet's ciphertext.
+export function parseContent(content) {
+  const facets = [];
+  let offset = 0;
+  while (offset < content.length) {
+    const key = readVarint(content, offset);
+    const length = readVarint(content, key.next);
+    const end = length.next + length.value;
+    if (key.value % 8 !== LEN_WIRE_TYPE || end > content.length) {
+      throw new Error("malformed content");
+    }
+    facets.push({ tag: Math.floor(key.value / 8), ciphertext: content.subarray(length.next, end) });
+    offset = end;
+  }
+  return facets;
+}
+
+export function assembleContent(facets) {
+  const ordered = [...facets].sort((left, right) => left.tag - right.tag);
+  const parts = ordered.map((facet) =>
+    concatBytes(writeVarint(facet.tag * 8 + LEN_WIRE_TYPE), writeVarint(facet.ciphertext.length), facet.ciphertext));
+  return concatBytes(...parts);
 }
 
 function optionalString(text) {
@@ -51,13 +96,6 @@ export function unwrapNodeKey(parentKey, wrappedKey, aadInfo) {
   return unwrap(parentKey, wrappedKey, nodeKeyAad(aadInfo));
 }
 
-function hashOfFacets(content) {
-  const parts = [];
-  for (const entry of content) {
-    parts.push(fieldU32(entry.facet), decodeBase64Url(entry.ciphertext));
-  }
-  return hash(concatBytes(...parts));
-}
 
 function optionalDecoded(text) {
   if (text === null || text === undefined) {
@@ -79,27 +117,27 @@ export function canonicalBlobBytes(blob) {
 }
 
 // nodeWriteMessage is what an author signs. An absent wrappedKey or blob hashes
-// as the empty string.
+// as the empty string; an absent parent or shortcut target is an empty field.
 export function nodeWriteMessage(node) {
-  return tlv("nw-node-write-v1", fieldString(node.id), optionalString(node.parentId), fieldString(node.collection),
+  return tlv("nw-node-write-v2", fieldString(node.id), optionalString(node.parentId), fieldString(node.collection),
     fieldString(node.kind), fieldU32(node.epoch), fieldU64(node.baseSeq), fieldBool(node.deleted),
-    hash(optionalDecoded(node.wrappedKey)), hashOfFacets(node.content), hash(canonicalBlobBytes(node.blob)));
+    optionalString(node.targetId), optionalString(node.targetRole),
+    hash(optionalDecoded(node.wrappedKey)), hash(decodeBase64Url(node.content)), hash(canonicalBlobBytes(node.blob)));
 }
 
 export function newId() {
   return crypto.randomUUID();
 }
 
-// createRootNode makes a collection root with a fresh random key. Its display
-// name is encrypted as facet 0. The returned nodeKey is the only copy.
+// createRootNode makes a collection root with a fresh random key. Roots carry no
+// content. The returned nodeKey is the only copy.
 export function createRootNode({ userId, collection, identity }) {
   const nodeKey = randomBytes(32);
   const node = {
     id: newId(), parentId: null, ownerId: userId, collection, kind: "root", epoch: 1, wrappedKey: null,
-    blob: null, deleted: false, baseSeq: 0, authorType: "user", authorId: userId, certId: null,
+    content: "", blob: null, targetId: null, targetRole: null, deleted: false, baseSeq: 0,
+    authorType: "user", authorId: userId, certId: null,
   };
-  const ciphertext = encryptFacet(nodeKey, node, 0, { name: ROOT_NAMES[collection] });
-  node.content = [{ facet: 0, ciphertext: encodeBase64Url(ciphertext) }];
   node.signature = encodeBase64Url(sign(identity.signSec, nodeWriteMessage(node)));
   return { node, nodeKey };
 }
@@ -157,6 +195,18 @@ export function createGrant({ nodeId, nodeKey, epoch, role, principalType, princ
   });
   grant.signature = encodeBase64Url(sign(granter.signSec, entryBytes));
   return grant;
+}
+
+// grantHead is the access log head a signed grant's entry becomes, in the form
+// the server reports heads.
+export function grantHead(grant) {
+  const entryBytes = accessEntryBytes({
+    nodeId: grant.nodeId, index: grant.logIndex, prevHash: decodeBase64Url(grant.prevHash), action: "grant",
+    principalType: grant.principalType, principalId: grant.principalId, role: grant.role, facets: grant.facets,
+    epoch: grant.epoch, wrappedKeysHash: hash(decodeBase64Url(grant.wrappedKeys)), actorType: "user",
+    actorId: grant.grantedById, certId: grant.certId,
+  });
+  return { index: grant.logIndex, entryHash: encodeBase64Url(hash(entryBytes)) };
 }
 
 export function delegationMessage(certificateBytes) {

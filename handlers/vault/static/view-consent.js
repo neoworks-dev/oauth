@@ -3,7 +3,7 @@
 
 import { ApiError, describeError, isChallengeGone, getJson, postJson } from "./nw-api.js";
 import { buildCertificate } from "./nw-nodes.js";
-import { buildInstallGrants, buildKeyIndex, describeCollections, describeSharedNodes, heldRoles } from "./nw-consent-tree.js";
+import { buildInstallGrants, buildKeyIndex, describeCollections, describeSharedNodes, heldRoles, planNewRoots } from "./nw-consent-tree.js";
 import { errorBox, h, withBusy } from "./nw-dom.js";
 import { requireUnlocked } from "./nw-keystore.js";
 import { heading, mountView } from "./nw-layout.js";
@@ -57,6 +57,27 @@ function nonEmptySelections(selections) {
 
 const CONSENT_ATTEMPTS = 3;
 
+// registryCollections is what the registry publishes for the requested collections.
+function registryCollections(challenge) {
+  if (!challenge.collections) {
+    return {};
+  }
+  return challenge.collections;
+}
+
+function collectionLabels(collections, published) {
+  const labels = {};
+  for (const collection of collections) {
+    labels[collection] = collectionLabel(collection, published);
+  }
+  return labels;
+}
+
+// approvedRoots are the planned new roots of the collections the user approved.
+function approvedRoots(plan, selections) {
+  return plan.newRoots.filter((root) => selections[root.node.collection] !== undefined);
+}
+
 function consentBody(context, plan) {
   const { challenge, identity, userId } = plan;
   const selections = nonEmptySelections(plan.selections);
@@ -65,6 +86,7 @@ function consentBody(context, plan) {
   if (!challenge.install || identity === null) {
     return body;
   }
+  body.roots = approvedRoots(plan, selections);
   const certificate = buildCertificate({
     userId, clientId: challenge.clientId, install: challenge.install, scopes,
     signSec: identity.signSec, lifetimeMs: CERTIFICATE_LIFETIME_MS,
@@ -90,7 +112,7 @@ async function submitApproval(context, plan) {
       if (!(error instanceof ApiError) || error.code !== "log_head_moved") {
         throw error;
       }
-      plan.heads = (await getJson("/vault/tree")).heads;
+      plan.heads = { ...(await getJson("/vault/tree")).heads, ...plan.newRootHeads };
     }
   }
   return postConsent(context, plan);
@@ -105,25 +127,42 @@ async function loadPlan(context) {
   const challenge = context.challenge;
   const plan = {
     challenge, identity: null, userId: context.session.userId, collectionTrees: {}, sharedNodes: {},
-    index: new Map(), held: new Map(), heads: {}, selections: {}, shares: {},
+    index: new Map(), held: new Map(), heads: {}, selections: {}, shares: {}, newRoots: [], newRootHeads: {},
   };
-  if (challenge.install && Object.keys(collectionRoles(challenge.scopes)).length > 0) {
+  const roles = collectionRoles(challenge.scopes);
+  const requested = Object.keys(roles);
+  if (challenge.install && requested.length > 0) {
     const unlocked = requireUnlocked();
     plan.identity = unlocked.identity;
     const tree = await getJson("/vault/tree");
+    const labels = collectionLabels(requested, registryCollections(challenge));
     plan.index = buildKeyIndex(tree, unlocked.identity);
-    plan.heads = tree.heads;
-    plan.collectionTrees = describeCollections(tree, plan.index, plan.userId);
+    plan.collectionTrees = describeCollections(tree, plan.index, plan.userId, requested, labels);
     plan.sharedNodes = describeSharedNodes(tree, plan.index, plan.userId);
     plan.held = heldRoles(tree, plan.index);
-    plan.selections = wholeSelections(plan.collectionTrees, collectionRoles(challenge.scopes));
+    addNewRoots(plan, planNewRoots({
+      collections: requested, collectionTrees: plan.collectionTrees, userId: plan.userId, identity: unlocked.identity, labels,
+    }));
+    plan.heads = { ...tree.heads, ...plan.newRootHeads };
+    plan.selections = wholeSelections(plan.collectionTrees, roles);
   }
   return plan;
 }
 
+// addNewRoots makes the roots this consent creates grantable like existing ones.
+function addNewRoots(plan, planned) {
+  plan.newRoots = planned.roots;
+  plan.newRootHeads = planned.heads;
+  for (const [nodeId, entry] of planned.keys) {
+    plan.index.set(nodeId, entry);
+  }
+  Object.assign(plan.collectionTrees, planned.trees);
+}
+
 function scopeList(challenge) {
   const shown = challenge.scopes.filter((scope) => !isShareScope(scope));
-  return h("ul", { class: "scopes" }, shown.map((scope) => h("li", null, describeScope(scope))));
+  const published = registryCollections(challenge);
+  return h("ul", { class: "scopes" }, shown.map((scope) => h("li", null, describeScope(scope, published))));
 }
 
 // shareChoices renders the optional permission to share a collection with other
@@ -133,10 +172,16 @@ function shareChoices(plan) {
     .filter((collection) => plan.selections[collection] !== undefined)
     .map((collection) => {
       plan.shares[collection] = false;
-      return nodeCheckbox("share-" + collection, describeShare(collection), 0, false, false, (checked) => {
+      return nodeCheckbox("share-" + elementKey(collection), describeShare(collection, registryCollections(plan.challenge)), 0, false, false, (checked) => {
         plan.shares[collection] = checked;
       });
     });
+}
+
+// elementKey turns a collection path such as "@neoworks/calendar" into an
+// element id part such as "neoworks-calendar".
+function elementKey(collection) {
+  return collection.replace(/[^a-z0-9]+/g, "-").replace(/^-+/, "");
 }
 
 function nodeCheckbox(id, label, depth, checked, disabled, onChange) {
@@ -147,7 +192,8 @@ function nodeCheckbox(id, label, depth, checked, disabled, onChange) {
 
 function collectionPicker(collection, collectionTree, selection, sharedNodes) {
   const containerBoxes = [];
-  const wholeBox = nodeCheckbox("whole-" + collection, "All " + collectionLabel(collection), 0, true, false, (checked) => {
+  const label = collectionTree.root.name;
+  const wholeBox = nodeCheckbox("whole-" + elementKey(collection), "All " + label, 0, true, false, (checked) => {
     selection.whole = checked;
     for (const box of containerBoxes) {
       box.querySelector("input").disabled = checked;
@@ -165,7 +211,7 @@ function collectionPicker(collection, collectionTree, selection, sharedNodes) {
     containerBoxes.push(row);
     rows.push(row);
   }
-  return h("fieldset", { class: "collection-picker" }, h("legend", null, "Give access to " + collectionLabel(collection)), rows, sharedRows(selection, sharedNodes));
+  return h("fieldset", { class: "collection-picker" }, h("legend", null, "Give access to " + label), rows, sharedRows(selection, sharedNodes));
 }
 
 // sharedRows lists what other people shared with the user. Passing it on to the

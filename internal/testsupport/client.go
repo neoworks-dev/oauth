@@ -4,16 +4,21 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/neoworks/oauth/internal/scopes"
 	"github.com/neoworks/oauth/internal/wire"
 	"golang.org/x/crypto/nacl/box"
 )
 
-// Account is a user as the browser would create it: random keys, signed root
-// nodes and owner grants.
+// TestCollections are the collections tests ask for, each published as a node
+// schema by PublishCollections.
+var TestCollections = []string{"@neoworks/calendar", "@neoworks/contacts", "@neoworks/photos", "@neoworks/files"}
+
+// Account is a user as the browser would create it: random keys, and the root
+// node of each test collection with the owner's grant, sent at the first
+// consent that asks for the collection.
 type Account struct {
 	UserID   string
 	Email    string
@@ -52,7 +57,7 @@ func NewAccount(email string) *Account {
 		RootIDs: map[string]string{}, RootKeys: map[string][]byte{},
 		LogHeads: map[string]LogHead{}, builtEntries: map[string]LogHead{},
 	}
-	for _, collection := range scopes.Collections {
+	for _, collection := range TestCollections {
 		account.RootIDs[collection] = uuid.NewString()
 		account.RootKeys[collection] = randomBytes(32)
 	}
@@ -73,11 +78,29 @@ func (account *Account) rootNode(collection string) map[string]any {
 	return map[string]any{
 		"id": account.RootIDs[collection], "parentId": nil, "ownerId": account.UserID,
 		"collection": collection, "kind": "root", "epoch": 1, "wrappedKey": nil,
-		"content": []map[string]any{{"facet": 0, "ciphertext": wire.EncodeBase64URL(randomBytes(280))}},
-		"blob":    nil, "deleted": false, "baseSeq": 0,
+		"content": "", "blob": nil, "targetId": nil, "targetRole": nil, "deleted": false, "baseSeq": 0,
 		"authorType": "user", "authorId": account.UserID, "certId": nil,
 		"signature": wire.EncodeBase64URL(ed25519.Sign(account.SignSec, randomBytes(16))),
 	}
+}
+
+// NewRoots returns, for each of the collections not among stored (the
+// collections the server already holds the account's roots in), the root and
+// the owner's genesis grant on it as a consent carries them. Their entries
+// become the log heads, so install grants built next chain after them.
+func (account *Account) NewRoots(collections, stored []string) []map[string]any {
+	roots := []map[string]any{}
+	for _, collection := range collections {
+		if slices.Contains(stored, collection) || account.RootIDs[collection] == "" {
+			continue
+		}
+		rootID := account.RootIDs[collection]
+		delete(account.LogHeads, rootID)
+		grant := account.Grant(rootID, "user", account.UserID, "write", 1, nil, account.EncPub, "")
+		roots = append(roots, map[string]any{"node": account.rootNode(collection), "grant": grant})
+	}
+	account.CommitGrants()
+	return roots
 }
 
 // Grant builds a signed access grant for a node key whose log entry extends
@@ -153,18 +176,9 @@ func PwhashParams() map[string]any {
 
 // SignupRequest is a complete, valid signup body.
 func (account *Account) SignupRequest() map[string]any {
-	nodes := []map[string]any{}
-	grants := []map[string]any{}
-	for _, collection := range scopes.Collections {
-		nodes = append(nodes, account.rootNode(collection))
-		delete(account.LogHeads, account.RootIDs[collection])
-		grants = append(grants, account.Grant(account.RootIDs[collection], "user", account.UserID, "write", 1, nil, account.EncPub, ""))
-	}
-	account.CommitGrants()
 	return map[string]any{
 		"email": account.Email, "firstName": "Test", "lastName": "User", "userId": account.UserID,
 		"authKey": account.AuthKeyText(), "pwhash": PwhashParams(), "bundle": account.Bundle(1),
-		"nodes": nodes, "grants": grants,
 		"device": map[string]any{"id": account.DeviceID, "name": "Test browser"},
 	}
 }

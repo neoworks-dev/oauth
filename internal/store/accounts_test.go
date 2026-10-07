@@ -8,18 +8,22 @@ import (
 	. "github.com/neoworks/oauth/internal/store"
 )
 
-func sampleAccount(userID, email string) NewAccount {
+// sampleRoot is a collection root of the user and the owner's grant on it.
+func sampleRoot(userID, nodeID, collection string) (Node, AccessGrant) {
 	now := time.Now().UTC()
-	rootNode := Node{
-		ID: "root-" + userID, OwnerID: userID, Collection: "calendar", Kind: "root", Epoch: 1,
-		Content: []NodeFacet{{Facet: 0, Ciphertext: "c2VhbGVk"}}, BaseSeq: 0, Seq: 1,
+	root := Node{
+		ID: nodeID, OwnerID: userID, Collection: collection, Kind: "root", Epoch: 1, BaseSeq: 0, Seq: 1,
 		AuthorType: "user", AuthorID: userID, Signature: "c2ln", CreatedAt: now, UpdatedAt: now,
 	}
 	ownerGrant := AccessGrant{
-		NodeID: rootNode.ID, PrincipalType: "user", PrincipalID: userID, Role: "write", Epoch: 1,
+		NodeID: nodeID, PrincipalType: "user", PrincipalID: userID, Role: "write", Epoch: 1,
 		WrappedKeys: "d3JhcHBlZA", GrantedByType: "user", GrantedByID: userID, Signature: "c2ln", CreatedAt: now,
 		PrevHash: "AAAA", EntryHash: "aGFzaA", WrappedKeysHash: "a2V5cw",
 	}
+	return root, ownerGrant
+}
+
+func sampleAccount(userID, email string) NewAccount {
 	return NewAccount{
 		UserID: userID, Email: email, FirstName: "Ada", LastName: "Lovelace", AuthHash: "hash",
 		Bundle: KeyBundle{
@@ -27,8 +31,6 @@ func sampleAccount(userID, email string) NewAccount {
 			AmkPassword: "YQ", AmkRecovery: "Yg", IdentityPrivate: "Yw", EncPub: "ZA", SignPub: "ZQ", SelfSig: "Zg",
 		},
 		Device: Device{ID: "device-" + userID, Name: "Test browser", Kind: "browser"},
-		Nodes:  []Node{rootNode},
-		Grants: []AccessGrant{ownerGrant},
 	}
 }
 
@@ -54,12 +56,8 @@ func TestCreateAccountRoundTrip(t *testing.T) {
 		t.Fatalf("unexpected bundle %+v", bundle)
 	}
 	structure, err := db.ListStructure(ctx, "user-roundtrip")
-	if err != nil || len(structure) != 1 || structure[0].ID != "root-user-roundtrip" {
-		t.Fatalf("unexpected structure %+v err %v", structure, err)
-	}
-	grants, err := db.ListOwnerGrants(ctx, "user-roundtrip")
-	if err != nil || len(grants) != 1 || grants[0].Role != "write" {
-		t.Fatalf("unexpected grants %+v err %v", grants, err)
+	if err != nil || len(structure) != 0 {
+		t.Fatalf("a new account has no roots until a consent asks for a collection: %+v err %v", structure, err)
 	}
 }
 

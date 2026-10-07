@@ -18,6 +18,7 @@ beforeAll(async () => {
 });
 
 const userId = "11111111-1111-4111-8111-111111111111";
+const collections = ["@neoworks/calendar", "@neoworks/contacts"];
 
 // ownTree is what GET /vault/tree returns for a user whose roots are sealed to
 // the given identity.
@@ -26,7 +27,7 @@ function ownTree(identity: any) {
   const grants: any[] = [];
   const keys: Record<string, Uint8Array> = {};
   const heads: Record<string, any> = {};
-  for (const collection of nodes.ROOT_COLLECTIONS) {
+  for (const collection of collections) {
     const { node, nodeKey } = nodes.createRootNode({ userId, collection, identity });
     const grant = nodes.createGrant({
       nodeId: node.id, nodeKey, epoch: 1, role: "write", principalType: "user", principalId: userId,
@@ -70,7 +71,7 @@ describe("resealing own grants", () => {
     const next = account.createIdentity();
     const { tree, keys } = ownTree(previous);
     const requests = rotation.resealOwnGrants({ tree, userId, previousIdentity: previous, identity: next });
-    expect(requests.length).toBe(nodes.ROOT_COLLECTIONS.length);
+    expect(requests.length).toBe(collections.length);
     for (const request of requests) {
       const sealed = primitives.decodeBase64Url(request.body.grant.wrappedKeys);
       const key = primitives.sealOpen(next.encPub, next.encSec, sealed);
@@ -86,7 +87,7 @@ describe("resealing own grants", () => {
     const previous = account.createIdentity();
     const next = account.createIdentity();
     const { tree } = ownTree(previous);
-    tree.nodes.push({ id: "foreign-root", ownerId: "someone-else", kind: "root", collection: "calendar" });
+    tree.nodes.push({ id: "foreign-root", ownerId: "someone-else", kind: "root", collection: "@neoworks/calendar" });
     tree.grants.push({ nodeId: "foreign-root", role: "read", epoch: 1, wrappedKeys: "irrelevant" });
     const requests = rotation.resealOwnGrants({ tree, userId, previousIdentity: previous, identity: next });
     expect(requests.map((request: any) => request.nodeId)).not.toContain("foreign-root");

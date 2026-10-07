@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/neoworks/oauth/internal/scopes"
 	"github.com/neoworks/oauth/internal/testsupport"
 	"github.com/neoworks/oauth/internal/wire"
 )
@@ -23,14 +22,8 @@ func TestSignupWritesAccountAndSignsIn(t *testing.T) {
 		t.Fatalf("bundle: %d %s", bundle.Status, bundle.Raw)
 	}
 	tree := vault.browser.Do("GET", "/vault/tree", nil, nil)
-	if tree.Status != 200 || len(tree.Body["nodes"].([]any)) != len(scopes.Collections) || len(tree.Body["grants"].([]any)) != len(scopes.Collections) {
-		t.Fatalf("tree: %d %s", tree.Status, tree.Raw)
-	}
-	for _, entry := range tree.Body["nodes"].([]any) {
-		node := entry.(map[string]any)
-		if node["baseSeq"] != float64(0) || node["deleted"] != false {
-			t.Fatalf("tree node lacks the content AAD fields: %v", node)
-		}
+	if tree.Status != 200 || len(tree.Body["nodes"].([]any)) != 0 || len(tree.Body["grants"].([]any)) != 0 {
+		t.Fatalf("a new account has no roots until a consent asks for a collection: %d %s", tree.Status, tree.Raw)
 	}
 }
 
@@ -51,19 +44,8 @@ func TestSignupRejectsTamperedKeyMaterial(t *testing.T) {
 		"swapped enc key": func(request map[string]any, account *testsupport.Account) {
 			request["bundle"].(map[string]any)["encPub"] = wire.EncodeBase64URL(testsupport.NewAccount("z@example.com").EncPub[:])
 		},
-		"owner grant signed over other keys": func(request map[string]any, account *testsupport.Account) {
-			grants := request["grants"].([]map[string]any)
-			grants[0]["wrappedKeys"] = wire.EncodeBase64URL(testsupport.Seal(account.EncPub, make([]byte, 32)))
-		},
-		"missing root": func(request map[string]any, account *testsupport.Account) {
-			request["nodes"] = request["nodes"].([]map[string]any)[:3]
-		},
 		"weak argon params": func(request map[string]any, account *testsupport.Account) {
 			request["pwhash"].(map[string]any)["ops"] = 1
-		},
-		"grant for another principal": func(request map[string]any, account *testsupport.Account) {
-			grants := request["grants"].([]map[string]any)
-			grants[1]["principalId"] = "someone-else"
 		},
 		"non uuid user id": func(request map[string]any, account *testsupport.Account) {
 			request["userId"] = "not-a-uuid"

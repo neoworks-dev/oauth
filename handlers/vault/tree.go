@@ -2,22 +2,23 @@ package vault
 
 import (
 	"net/http"
+	"slices"
 
 	"github.com/neoworks/oauth/internal/store"
 )
 
 type treeNodeView struct {
-	ID         string         `json:"id"`
-	OwnerID    string         `json:"ownerId"`
-	OwnerEmail string         `json:"ownerEmail,omitempty"`
-	ParentID   *string        `json:"parentId"`
-	Collection string         `json:"collection"`
-	Kind       string         `json:"kind"`
-	Epoch      uint32         `json:"epoch"`
-	BaseSeq    uint64         `json:"baseSeq"`
-	Deleted    bool           `json:"deleted"`
-	WrappedKey *string        `json:"wrappedKey"`
-	Content    []facetPayload `json:"content"`
+	ID         string  `json:"id"`
+	OwnerID    string  `json:"ownerId"`
+	OwnerEmail string  `json:"ownerEmail,omitempty"`
+	ParentID   *string `json:"parentId"`
+	Collection string  `json:"collection"`
+	Kind       string  `json:"kind"`
+	Epoch      uint32  `json:"epoch"`
+	BaseSeq    uint64  `json:"baseSeq"`
+	Deleted    bool    `json:"deleted"`
+	WrappedKey *string `json:"wrappedKey"`
+	Content    string  `json:"content"`
 }
 
 type ownerGrantView struct {
@@ -33,9 +34,9 @@ type logHeadView struct {
 }
 
 // handleTree returns the user's root and container nodes and those shared with
-// them, the user's grants
-// that unlock the roots and each node's access log head, which is what the
-// consent screen needs to offer narrower selections and sign install grants.
+// them, the user's grants that unlock the roots, each node's access log head and
+// the registry schema of each collection, which is what the consent screen needs
+// to name containers, offer narrower selections and sign install grants.
 func (server *Server) handleTree(response http.ResponseWriter, request *http.Request) {
 	userID := sessionFrom(request).Session.UserID
 	nodes, err := server.treeNodes(request, userID)
@@ -53,10 +54,16 @@ func (server *Server) handleTree(response http.ResponseWriter, request *http.Req
 		writeError(response, http.StatusInternalServerError, "server_error")
 		return
 	}
+	schemas, err := server.store.CollectionSchemas(request.Context(), collectionsOf(nodes))
+	if err != nil {
+		writeError(response, http.StatusInternalServerError, "server_error")
+		return
+	}
 	writeJSON(response, http.StatusOK, map[string]any{
-		"nodes":  server.treeNodeViews(request, userID, nodes),
-		"grants": ownerGrantViews(grants),
-		"heads":  logHeadViews(heads),
+		"nodes":   server.treeNodeViews(request, userID, nodes),
+		"grants":  ownerGrantViews(grants),
+		"heads":   logHeadViews(heads),
+		"schemas": schemas,
 	})
 }
 
@@ -72,6 +79,16 @@ func (server *Server) treeNodes(request *http.Request, userID string) ([]store.N
 		return nil, err
 	}
 	return append(own, shared...), nil
+}
+
+func collectionsOf(nodes []store.Node) []string {
+	collections := []string{}
+	for _, node := range nodes {
+		if !slices.Contains(collections, node.Collection) {
+			collections = append(collections, node.Collection)
+		}
+	}
+	return collections
 }
 
 func nodeIDsOf(nodes []store.Node) []string {
@@ -129,9 +146,7 @@ func treeNodeViewOf(node store.Node) treeNodeView {
 		wrappedKey := node.WrappedKey
 		view.WrappedKey = &wrappedKey
 	}
-	for _, facet := range node.Content {
-		view.Content = append(view.Content, facetPayload{Facet: facet.Facet, Ciphertext: facet.Ciphertext})
-	}
+	view.Content = node.Content
 	return view
 }
 

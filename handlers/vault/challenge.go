@@ -5,6 +5,8 @@ import (
 	"net/url"
 
 	"github.com/neoworks/oauth/internal/cache"
+	"github.com/neoworks/oauth/internal/scopes"
+	"github.com/neoworks/oauth/internal/store"
 )
 
 // challengeView is what the consent screen needs to know about a pending
@@ -16,6 +18,9 @@ type challengeView struct {
 	AutoGrant      bool         `json:"autoGrant"`
 	RedirectOrigin string       `json:"redirectOrigin"`
 	Install        *installView `json:"install"`
+	// Collections are the registry schemas of the collections the scopes name,
+	// for their titles and node descriptors.
+	Collections map[string]store.CollectionSchema `json:"collections"`
 }
 
 type installView struct {
@@ -36,6 +41,11 @@ func (server *Server) handleChallenge(response http.ResponseWriter, request *htt
 		writeError(response, http.StatusNotFound, "challenge_not_found")
 		return
 	}
+	collections, err := server.store.CollectionSchemas(request.Context(), scopes.Collections(challenge.Scopes))
+	if err != nil {
+		writeError(response, http.StatusInternalServerError, "server_error")
+		return
+	}
 	view := challengeView{
 		ClientID:       client.ID,
 		ClientName:     displayName(client.Name, client.ID),
@@ -43,6 +53,7 @@ func (server *Server) handleChallenge(response http.ResponseWriter, request *htt
 		AutoGrant:      client.AutoGrantScopes,
 		RedirectOrigin: originOf(challenge.RedirectURI),
 		Install:        installViewOf(challenge.Install),
+		Collections:    collections,
 	}
 	writeJSON(response, http.StatusOK, view)
 }

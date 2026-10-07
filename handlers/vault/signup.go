@@ -3,12 +3,9 @@ package vault
 import (
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/neoworks/oauth/internal/ids"
-	"github.com/neoworks/oauth/internal/scopes"
 	"github.com/neoworks/oauth/internal/store"
-	"github.com/neoworks/oauth/internal/wire"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -63,15 +60,13 @@ func (server *Server) handleSignupVerifyCode(response http.ResponseWriter, reque
 
 // signupRequest is everything the browser generates for a new account.
 type signupRequest struct {
-	Email     string         `json:"email"`
-	FirstName string         `json:"firstName"`
-	LastName  string         `json:"lastName"`
-	UserID    string         `json:"userId"`
-	AuthKey   string         `json:"authKey"`
-	Pwhash    pwhashParams   `json:"pwhash"`
-	Bundle    bundlePayload  `json:"bundle"`
-	Nodes     []nodePayload  `json:"nodes"`
-	Grants    []grantPayload `json:"grants"`
+	Email     string        `json:"email"`
+	FirstName string        `json:"firstName"`
+	LastName  string        `json:"lastName"`
+	UserID    string        `json:"userId"`
+	AuthKey   string        `json:"authKey"`
+	Pwhash    pwhashParams  `json:"pwhash"`
+	Bundle    bundlePayload `json:"bundle"`
 	Device    struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
@@ -88,7 +83,7 @@ func (server *Server) handleSignup(response http.ResponseWriter, request *http.R
 		return
 	}
 	body.Email = normalizeEmail(body.Email)
-	account, err := buildAccount(body, time.Now().UTC())
+	account, err := buildAccount(body)
 	if err != nil {
 		writeError(response, http.StatusBadRequest, "invalid_request")
 		return
@@ -120,7 +115,7 @@ func (server *Server) handleSignup(response http.ResponseWriter, request *http.R
 }
 
 // buildAccount validates a signup request and converts it to the stored form.
-func buildAccount(body signupRequest, now time.Time) (store.NewAccount, error) {
+func buildAccount(body signupRequest) (store.NewAccount, error) {
 	var account store.NewAccount
 	if !ids.IsLowercaseUUIDv4(body.UserID) || !ids.IsLowercaseUUIDv4(body.Device.ID) {
 		return account, errInvalidPayload
@@ -135,12 +130,7 @@ func buildAccount(body signupRequest, now time.Time) (store.NewAccount, error) {
 	if err := checkPwhashParams(body.Pwhash); err != nil {
 		return account, err
 	}
-	signPub, err := checkInitialBundle(body)
-	if err != nil {
-		return account, err
-	}
-	nodes, grants, err := buildRootTree(body, signPub, now)
-	if err != nil {
+	if _, err := checkInitialBundle(body); err != nil {
 		return account, err
 	}
 	authHash, err := bcrypt.GenerateFromPassword([]byte(authKey), bcrypt.DefaultCost)
@@ -155,8 +145,6 @@ func buildAccount(body signupRequest, now time.Time) (store.NewAccount, error) {
 		AuthHash:  string(authHash),
 		Bundle:    storedBundle(body.UserID, body.Bundle, body.Pwhash),
 		Device:    store.Device{ID: body.Device.ID, Name: cleanDeviceName(body.Device.Name), Kind: "browser"},
-		Nodes:     nodes,
-		Grants:    grants,
 	}, nil
 }
 
@@ -205,102 +193,4 @@ func storedPrevious(previous *previousIdentityPayload) *store.PreviousIdentity {
 		return nil
 	}
 	return &store.PreviousIdentity{IdentityPrivate: previous.IdentityPrivate, EncPub: previous.EncPub, SignPub: previous.SignPub}
-}
-
-// buildRootTree checks the root nodes and the owner's grant on each, which is
-// entry 0 of the root's access log.
-func buildRootTree(body signupRequest, signPub []byte, now time.Time) ([]store.Node, []store.AccessGrant, error) {
-	if len(body.Nodes) != len(scopes.Collections) || len(body.Grants) != len(scopes.Collections) {
-		return nil, nil, errInvalidPayload
-	}
-	nodes := make([]store.Node, 0, len(body.Nodes))
-	grants := make([]store.AccessGrant, 0, len(body.Grants))
-	seenCollections := map[string]bool{}
-	for index, node := range body.Nodes {
-		stored, err := rootNode(body.UserID, node, uint64(index+1), now)
-		if err != nil || seenCollections[node.Collection] {
-			return nil, nil, errInvalidPayload
-		}
-		seenCollections[node.Collection] = true
-		grant, err := ownerGrant(body.UserID, stored, body.Grants, signPub, now)
-		if err != nil {
-			return nil, nil, err
-		}
-		nodes = append(nodes, stored)
-		grants = append(grants, grant)
-	}
-	return nodes, grants, nil
-}
-
-func rootNode(userID string, node nodePayload, seq uint64, now time.Time) (store.Node, error) {
-	if !ids.IsLowercaseUUIDv4(node.ID) || node.OwnerID != userID || node.Kind != "root" {
-		return store.Node{}, errInvalidPayload
-	}
-	if node.ParentID != nil || node.WrappedKey != nil || node.Blob != nil || node.Deleted || node.BaseSeq != 0 {
-		return store.Node{}, errInvalidPayload
-	}
-	if node.AuthorType != "user" || node.AuthorID != userID || node.CertID != nil {
-		return store.Node{}, errInvalidPayload
-	}
-	if !isCollection(node.Collection) || node.Epoch == 0 {
-		return store.Node{}, errInvalidPayload
-	}
-	if _, err := decodeSized(node.Signature, signatureBytes); err != nil {
-		return store.Node{}, err
-	}
-	content, err := storedContent(node.Content)
-	if err != nil {
-		return store.Node{}, err
-	}
-	return store.Node{
-		ID: node.ID, OwnerID: userID, Collection: node.Collection, Kind: "root", Epoch: node.Epoch,
-		Content: content, Seq: seq, AuthorType: "user", AuthorID: userID, Signature: node.Signature,
-		CreatedAt: now, UpdatedAt: now,
-	}, nil
-}
-
-func isCollection(name string) bool {
-	for _, collection := range scopes.Collections {
-		if collection == name {
-			return true
-		}
-	}
-	return false
-}
-
-func storedContent(content []facetPayload) ([]store.NodeFacet, error) {
-	if len(content) == 0 || len(content) > 8 {
-		return nil, errInvalidPayload
-	}
-	stored := make([]store.NodeFacet, 0, len(content))
-	for _, facet := range content {
-		if _, err := decodeBounded(facet.Ciphertext, maxBlobTextSize); err != nil {
-			return nil, err
-		}
-		stored = append(stored, store.NodeFacet{Facet: facet.Facet, Ciphertext: facet.Ciphertext})
-	}
-	return stored, nil
-}
-
-func ownerGrant(userID string, node store.Node, grants []grantPayload, signPub []byte, now time.Time) (store.AccessGrant, error) {
-	for _, grant := range grants {
-		if grant.NodeID != node.ID {
-			continue
-		}
-		return checkedOwnerGrant(userID, node, grant, signPub, now)
-	}
-	return store.AccessGrant{}, errInvalidPayload
-}
-
-func checkedOwnerGrant(userID string, node store.Node, grant grantPayload, signPub []byte, now time.Time) (store.AccessGrant, error) {
-	isOwnerWrite := grant.PrincipalType == "user" && grant.PrincipalID == userID && grant.Role == "write"
-	isSelfGranted := grant.GrantedByType == "user" && grant.GrantedByID == userID
-	if !isOwnerWrite || !isSelfGranted || grant.Facets != nil || grant.CertID != nil || grant.Epoch != node.Epoch {
-		return store.AccessGrant{}, errInvalidPayload
-	}
-	isGenesis := grant.LogIndex == 0 && grant.PrevHash == wire.EncodeBase64URL(wire.GenesisPrevHash)
-	if !isGenesis {
-		return store.AccessGrant{}, errInvalidPayload
-	}
-	return verifiedGrantEntry(grant, signPub, now)
 }

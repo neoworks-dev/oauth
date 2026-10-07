@@ -1,20 +1,52 @@
 // Resolves the node keys the owner can reach and describes the tree for the
 // consent screen. Pure functions: no DOM and no network.
 
-import { ROOT_COLLECTIONS, createGrant, decryptFacet, nextLogPosition, unwrapNodeKey } from "./nw-nodes.js";
+import { createGrant, createRootNode, grantHead, nextLogPosition, unwrapNodeKey } from "./nw-nodes.js";
 import { decodeBase64Url, sealOpen } from "./nw-primitives.js";
+import { readTitle } from "./nw-titles.js";
 
-function readName(node, nodeKey) {
-  const facetZero = node.content.find((entry) => entry.facet === 0);
-  if (!facetZero) {
+// parseDescriptors maps each collection of the tree's schemas to its registry
+// title and parsed node descriptor.
+export function parseDescriptors(schemas) {
+  const descriptors = {};
+  for (const [collection, schema] of Object.entries(schemas || {})) {
+    descriptors[collection] = { title: schema.title, descriptor: parsedOrNull(schema.descriptor) };
+  }
+  return descriptors;
+}
+
+function parsedOrNull(text) {
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    return null;
+  }
+}
+
+// readName is a root's collection title, or another node's title field.
+function readName(node, nodeKey, descriptors) {
+  const schema = descriptors[node.collection];
+  if (!schema) {
     return "Untitled";
   }
-  try {
-    const value = decryptFacet(nodeKey, node, 0, decodeBase64Url(facetZero.ciphertext));
-    return String(value.name);
-  } catch (error) {
-    return "Unreadable";
+  if (node.kind === "root") {
+    return rootName(node, schema);
   }
+  if (schema.descriptor === null) {
+    return "Untitled";
+  }
+  const title = readTitle(node, nodeKey, schema.descriptor);
+  if (title === null || title === "") {
+    return "Untitled";
+  }
+  return title;
+}
+
+function rootName(node, schema) {
+  if (schema.title) {
+    return schema.title;
+  }
+  return node.collection;
 }
 
 function openRootKeys(tree, identity) {
@@ -65,25 +97,28 @@ export function buildKeyIndex(tree, identity) {
   return index;
 }
 
-// describeCollections lists, per collection, its root and its containers with
-// readable names and nesting depth.
-export function describeCollections(tree, index, userId) {
+// describeCollections lists, for each requested collection the user owns a
+// root in, the root (named by its collection's label) and its containers with
+// their titles and nesting depth.
+export function describeCollections(tree, index, userId, collections, labels) {
+  const descriptors = parseDescriptors(tree.schemas);
   const described = {};
-  for (const collection of ROOT_COLLECTIONS) {
+  for (const collection of collections) {
     const root = tree.nodes.find((node) => node.kind === "root" && node.collection === collection && node.ownerId === userId);
     if (root && index.has(root.id)) {
-      described[collection] = { root: describeNode(index, root, 0), containers: describeContainers(tree, index, root) };
+      const rootEntry = { id: root.id, name: labels[collection], depth: 0, collection, ownerEmail: root.ownerEmail };
+      described[collection] = { root: rootEntry, containers: describeContainers(tree, index, root, descriptors) };
     }
   }
   return described;
 }
 
-function describeNode(index, node, depth) {
+function describeNode(index, node, depth, descriptors) {
   const entry = index.get(node.id);
-  return { id: node.id, name: readName(node, entry.key), depth, collection: node.collection, ownerEmail: node.ownerEmail };
+  return { id: node.id, name: readName(node, entry.key, descriptors), depth, collection: node.collection, ownerEmail: node.ownerEmail };
 }
 
-function describeContainers(tree, index, root) {
+function describeContainers(tree, index, root, descriptors) {
   const children = new Map();
   for (const node of tree.nodes) {
     if (node.kind === "container" && index.has(node.id)) {
@@ -93,7 +128,7 @@ function describeContainers(tree, index, root) {
     }
   }
   const ordered = [];
-  collectDescendants(index, children, root.id, 1, ordered);
+  collectDescendants(index, children, root.id, 1, ordered, descriptors);
   return ordered;
 }
 
@@ -104,16 +139,17 @@ function childrenOf(children, parentId) {
   return [];
 }
 
-function collectDescendants(index, children, parentId, depth, ordered) {
+function collectDescendants(index, children, parentId, depth, ordered, descriptors) {
   for (const node of childrenOf(children, parentId)) {
-    ordered.push(describeNode(index, node, depth));
-    collectDescendants(index, children, node.id, depth + 1, ordered);
+    ordered.push(describeNode(index, node, depth, descriptors));
+    collectDescendants(index, children, node.id, depth + 1, ordered, descriptors);
   }
 }
 
 // describeSharedNodes lists, per collection, the nodes other people shared with
 // the user whose keys the user holds: each entry point and the containers below.
 export function describeSharedNodes(tree, index, userId) {
+  const descriptors = parseDescriptors(tree.schemas);
   const children = new Map();
   const entries = [];
   for (const node of tree.nodes) {
@@ -128,11 +164,35 @@ export function describeSharedNodes(tree, index, userId) {
   }
   const described = new Map();
   for (const entry of entries) {
-    const ordered = [describeNode(index, entry, 0)];
-    collectDescendants(index, children, entry.id, 1, ordered);
+    const ordered = [describeNode(index, entry, 0, descriptors)];
+    collectDescendants(index, children, entry.id, 1, ordered, descriptors);
     described.set(entry.collection, [...childrenOf(described, entry.collection), ...ordered]);
   }
   return Object.fromEntries(described);
+}
+
+// planNewRoots creates a root, and the user's own grant on it as entry 0 of its
+// access log, for each requested collection the user has none in yet. It
+// returns the roots as the consent sends them, plus what the consent tree needs
+// to grant on them: their keys, their log heads and a description of each.
+export function planNewRoots({ collections, collectionTrees, userId, identity, labels }) {
+  const planned = { roots: [], keys: new Map(), heads: {}, trees: {} };
+  for (const collection of collections) {
+    if (collectionTrees[collection]) {
+      continue;
+    }
+    const { node, nodeKey } = createRootNode({ userId, collection, identity });
+    const grant = createGrant({
+      nodeId: node.id, nodeKey, epoch: node.epoch, role: "write", principalType: "user", principalId: userId,
+      principalEncPub: identity.encPub, granter: { userId, signSec: identity.signSec }, position: nextLogPosition(null),
+    });
+    planned.roots.push({ node, grant });
+    planned.keys.set(node.id, { node, key: nodeKey });
+    planned.heads[node.id] = grantHead(grant);
+    const rootEntry = { id: node.id, name: labels[collection], depth: 0, collection };
+    planned.trees[collection] = { root: rootEntry, containers: [] };
+  }
+  return planned;
 }
 
 // heldRoles maps every shared node the user can open to the highest role the

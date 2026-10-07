@@ -59,6 +59,10 @@ func (handler *AuthorizeHandler) handleAuthorize(response http.ResponseWriter, r
 		redirectError(response, request, redirectURI, state, "invalid_scope", "The request asked for scopes this application may not use.")
 		return
 	}
+	if !handler.collectionsPublished(request, requestedScopes) {
+		redirectError(response, request, redirectURI, state, "invalid_scope", "The request asked for a collection that is not a published Neoworks schema.")
+		return
+	}
 	install, err := parseInstallRequest(query.Get("install_id"), query.Get("install_enc_pub"),
 		query.Get("install_sign_pub"), query.Get("install_name"))
 	if err != nil {
@@ -138,4 +142,15 @@ func redirectError(response http.ResponseWriter, request *http.Request, redirect
 	values.Set("error_description", description)
 	target.RawQuery = values.Encode()
 	http.Redirect(response, request, target.String(), http.StatusFound)
+}
+
+// collectionsPublished reports whether every collection the scopes name is a
+// published node schema in the registry.
+func (handler *AuthorizeHandler) collectionsPublished(request *http.Request, requested []string) bool {
+	collections := scopes.Collections(requested)
+	if len(collections) == 0 {
+		return true
+	}
+	schemas, err := handler.clients.CollectionSchemas(request.Context(), collections)
+	return err == nil && len(schemas) == len(collections)
 }

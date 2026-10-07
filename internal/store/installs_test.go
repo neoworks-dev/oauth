@@ -12,19 +12,16 @@ func TestInstallConsentRoundTrip(t *testing.T) {
 	db := requireStore(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
-	account := sampleAccount("user-i", "install-owner@example.com")
-	second := account.Nodes[0]
-	second.ID, second.Collection = "node-b", "contacts"
-	secondGrant := account.Grants[0]
-	secondGrant.NodeID = "node-b"
-	account.Nodes = append(account.Nodes, second)
-	account.Grants = append(account.Grants, secondGrant)
-	if err := db.CreateAccount(ctx, account); err != nil {
+	if err := db.CreateAccount(ctx, sampleAccount("user-i", "install-owner@example.com")); err != nil {
 		t.Fatalf("create account: %v", err)
 	}
+	calendarRoot, calendarOwner := sampleRoot("user-i", "root-user-i", "@neoworks/calendar")
+	contactsRoot, contactsOwner := sampleRoot("user-i", "node-b", "@neoworks/contacts")
 	consent := InstallConsent{
 		Install:     Install{ID: "install-1", UserID: "user-i", ClientID: "photos", EncPub: "ZW5j", SignPub: "c2ln", Name: "Photos", CreatedAt: now},
 		Certificate: Certificate{ID: "cert-1", Bytes: "Ynl0ZXM", Signature: "c2ln"},
+		Roots:       []Node{calendarRoot, contactsRoot},
+		RootGrants:  []AccessGrant{calendarOwner, contactsOwner},
 		Grants: []AccessGrant{
 			{NodeID: "root-user-i", PrincipalType: "install", PrincipalID: "install-1", Role: "read", Epoch: 1, WrappedKeys: "d3Jh", GrantedByType: "user", GrantedByID: "user-i", CertID: "cert-1", Signature: "c2ln", LogIndex: 1, CreatedAt: now, PrevHash: "AAAA", EntryHash: "aGFzaA", WrappedKeysHash: "a2V5cw"},
 			{NodeID: "node-b", PrincipalType: "install", PrincipalID: "install-1", Role: "write", Facets: []uint32{0, 1}, Epoch: 2, WrappedKeys: "d3Jh", GrantedByType: "user", GrantedByID: "user-i", CertID: "cert-1", Signature: "c2ln", LogIndex: 1, CreatedAt: now, PrevHash: "AAAA", EntryHash: "aGFzaA", WrappedKeysHash: "a2V5cw"},
@@ -33,6 +30,15 @@ func TestInstallConsentRoundTrip(t *testing.T) {
 	if err := db.SaveInstallConsent(ctx, consent); err != nil {
 		t.Fatalf("save consent: %v", err)
 	}
+	roots, err := db.RootCollections(ctx, "user-i")
+	if err != nil || len(roots) != 2 {
+		t.Fatalf("the consent should create both roots: %v err %v", roots, err)
+	}
+	owned, err := db.ListOwnerGrants(ctx, "user-i")
+	if err != nil || len(owned) != 2 {
+		t.Fatalf("the consent should store the owner grants: %+v err %v", owned, err)
+	}
+	consent.Roots, consent.RootGrants = nil, nil
 	consent.Certificate.ID = "cert-2"
 	for index := range consent.Grants {
 		consent.Grants[index].LogIndex = 2

@@ -20,4 +20,5 @@ type Store interface {
 	RevokeRefreshTokensFor(ctx context.Context, userID, clientID string) error
 	GetInstall(ctx context.Context, installID string) (*store.Install, error)
 	GetInstallGrantBundle(ctx context.Context, installID string) (*store.InstallGrantBundle, error)
+	CollectionSchemas(ctx context.Context, collections []string) (map[string]store.CollectionSchema, error)
 }

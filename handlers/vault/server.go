@@ -36,6 +36,9 @@ type Store interface {
 	SaveInstallConsent(ctx context.Context, consent store.InstallConsent) error
 	SaveRefreshToken(ctx context.Context, token store.RefreshToken) error
 	ListStructure(ctx context.Context, userID string) ([]store.Node, error)
+	CollectionSchemas(ctx context.Context, collections []string) (map[string]store.CollectionSchema, error)
+	UserCollections(ctx context.Context, userID string) ([]string, error)
+	RootCollections(ctx context.Context, userID string) ([]string, error)
 	ListSharedStructure(ctx context.Context, userID string) ([]store.Node, error)
 	ListOwnerGrants(ctx context.Context, userID string) ([]store.AccessGrant, error)
 	GetNodeOwnerships(ctx context.Context, nodeIDs []string) ([]store.NodeOwnership, error)

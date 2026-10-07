@@ -5,14 +5,10 @@ import (
 	"time"
 )
 
-// NodeFacet is one encrypted facet of a node. Ciphertext is base64url.
-type NodeFacet struct {
-	Facet      uint32 `json:"facet"`
-	Ciphertext string `json:"ciphertext"`
-}
-
 // Node is the stored form of a tree node (contract section 4). Binary values are
-// base64url strings. Blob is the node's blob descriptor, passed through opaque.
+// base64url strings. Content is one message with a LEN field per facet tag whose
+// body is that facet's ciphertext; roots have none. Blob is the node's blob
+// descriptor, passed through opaque.
 type Node struct {
 	ID            string         `json:"id"`
 	ParentID      string         `json:"parent_id"`
@@ -21,7 +17,7 @@ type Node struct {
 	Kind          string         `json:"kind"`
 	Epoch         uint32         `json:"epoch"`
 	WrappedKey    string         `json:"wrapped_key"`
-	Content       []NodeFacet    `json:"content"`
+	Content       string         `json:"content"`
 	Blob          map[string]any `json:"blob"`
 	Deleted       bool           `json:"deleted"`
 	BaseSeq       uint64         `json:"base_seq"`

@@ -10,7 +10,7 @@ import (
 
 // consentWithCertificate is consentFor with a certificate of the given lifetime.
 func consentWithCertificate(system *system, account *testsupport.Account, install testsupport.Install, challengeID string, scopes []string, lifetime time.Duration) map[string]any {
-	body := consentFor(account, install, system.clientID, challengeID, scopes, map[string]string{"calendar": "write"})
+	body := consentFor(account, install, system.clientID, challengeID, scopes, map[string]string{"@neoworks/calendar": "write"})
 	certificate := account.Certificate(testsupport.CertificateParams{
 		InstallID: install.ID, ClientID: system.clientID,
 		InstallEncPub: wire.EncodeBase64URL(install.EncPub[:]), InstallSignPub: wire.EncodeBase64URL(install.SignPub),
@@ -18,7 +18,7 @@ func consentWithCertificate(system *system, account *testsupport.Account, instal
 	})
 	body["certificate"], body["certificateSignature"] = certificate.Bytes, certificate.Signature
 	body["grants"] = []map[string]any{
-		account.Grant(account.RootIDs["calendar"], "install", install.ID, "write", 1, nil, install.EncPub, certificate.CertID),
+		account.Grant(account.RootIDs["@neoworks/calendar"], "install", install.ID, "write", 1, nil, install.EncPub, certificate.CertID),
 	}
 	return body
 }
@@ -28,9 +28,9 @@ func TestCertificatesLiveAtMostAboutThirtyDays(t *testing.T) {
 	account := system.freshAccount("lifetime")
 	install := testsupport.NewInstall()
 	_, challenge := pkce()
-	scopes := []string{"calendar:read", "calendar:write"}
+	scopes := []string{"@neoworks/calendar:read", "@neoworks/calendar:write"}
 
-	longLived := system.authorize(system.authorizeParams(install, challenge, "calendar:read calendar:write"))
+	longLived := system.authorize(system.authorizeParams(install, challenge, "@neoworks/calendar:read @neoworks/calendar:write"))
 	body := consentWithCertificate(system, account, install, challengeID(longLived), scopes, 90*24*time.Hour)
 	if response := system.browser.Do("POST", "/vault/consent", body, nil); response.Status != 400 {
 		t.Fatalf("a 90-day certificate: status %d, want 400", response.Status)
@@ -43,8 +43,8 @@ func TestShareScopeIsGrantedOnlyWhenApprovedWithAccess(t *testing.T) {
 	install := testsupport.NewInstall()
 	_, challenge := pkce()
 
-	withShare := []string{"calendar:read", "calendar:write", "calendar:share"}
-	location := system.authorize(system.authorizeParams(install, challenge, "calendar:read calendar:write calendar:share"))
+	withShare := []string{"@neoworks/calendar:read", "@neoworks/calendar:write", "@neoworks/calendar:share"}
+	location := system.authorize(system.authorizeParams(install, challenge, "@neoworks/calendar:read @neoworks/calendar:write @neoworks/calendar:share"))
 	body := consentWithCertificate(system, account, install, challengeID(location), withShare, 30*24*time.Hour)
 	response := system.browser.Do("POST", "/vault/consent", body, nil)
 	if response.Status != 200 {
@@ -53,17 +53,18 @@ func TestShareScopeIsGrantedOnlyWhenApprovedWithAccess(t *testing.T) {
 	account.CommitGrants()
 
 	other := testsupport.NewInstall()
-	shareOnly := system.authorize(system.authorizeParams(other, challenge, "calendar:share"))
-	bare := map[string]any{"loginChallenge": challengeID(shareOnly), "scopes": []string{"calendar:share"}}
+	shareOnly := system.authorize(system.authorizeParams(other, challenge, "@neoworks/calendar:share"))
+	bare := map[string]any{"loginChallenge": challengeID(shareOnly), "scopes": []string{"@neoworks/calendar:share"}}
 	if rejected := system.browser.Do("POST", "/vault/consent", bare, nil); rejected.Status != 400 {
 		t.Fatalf("share without read or write: status %d, want 400", rejected.Status)
 	}
 }
 
-// shareRootWith stores a whole-node user grant from owner to recipient.
+// shareRootWith stores a whole-node user grant on the owner's calendar root to
+// the recipient.
 func shareRootWith(t *testing.T, owner, recipient *testsupport.Account, role string) string {
 	t.Helper()
-	rootID := owner.RootIDs["calendar"]
+	rootID := owner.RootIDs["@neoworks/calendar"]
 	err := testSurreal.Exec(`CREATE access_grant SET node_id = $node, principal_type = 'user', principal_id = $recipient,
 		role = $role, epoch = 1, wrapped_keys = 'sealed', granted_by_type = 'user', granted_by_id = $owner,
 		signature = 'signature', log_index = 1`,
@@ -91,10 +92,11 @@ func consentOnSharedRoot(system *system, recipient *testsupport.Account, install
 func TestConsentPassesASharedNodeOnUpToTheUsersOwnRole(t *testing.T) {
 	system := newSystem(t)
 	owner := system.freshAccount("owner")
+	system.createRoots(owner)
 	recipient := system.freshAccount("recipient")
 	rootID := shareRootWith(t, owner, recipient, "read")
 	_, challenge := pkce()
-	scopes := []string{"calendar:read", "calendar:write"}
+	scopes := []string{"@neoworks/calendar:read", "@neoworks/calendar:write"}
 
 	cases := map[string]struct {
 		role   string
@@ -106,7 +108,7 @@ func TestConsentPassesASharedNodeOnUpToTheUsersOwnRole(t *testing.T) {
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {
 			install := testsupport.NewInstall()
-			location := system.authorize(system.authorizeParams(install, challenge, "calendar:read calendar:write"))
+			location := system.authorize(system.authorizeParams(install, challenge, "@neoworks/calendar:read @neoworks/calendar:write"))
 			body := consentOnSharedRoot(system, recipient, install, challengeID(location), rootID, testCase.role, scopes)
 			response := system.browser.Do("POST", "/vault/consent", body, nil)
 			if response.Status != testCase.status {
@@ -120,15 +122,15 @@ func TestConsentPassesASharedNodeOnUpToTheUsersOwnRole(t *testing.T) {
 func TestConsentRefusesANodeNobodySharedWithTheUser(t *testing.T) {
 	system := newSystem(t)
 	owner := system.freshAccount("private")
+	system.createRoots(owner)
 	recipient := system.freshAccount("stranger")
-	rootID := owner.RootIDs["calendar"]
+	rootID := owner.RootIDs["@neoworks/calendar"]
 	recipient.LogHeads[rootID] = owner.LogHeads[rootID]
 	install := testsupport.NewInstall()
 	_, challenge := pkce()
-	location := system.authorize(system.authorizeParams(install, challenge, "calendar:read"))
-	body := consentOnSharedRoot(system, recipient, install, challengeID(location), rootID, "read", []string{"calendar:read"})
+	location := system.authorize(system.authorizeParams(install, challenge, "@neoworks/calendar:read"))
+	body := consentOnSharedRoot(system, recipient, install, challengeID(location), rootID, "read", []string{"@neoworks/calendar:read"})
 	if response := system.browser.Do("POST", "/vault/consent", body, nil); response.Status != 400 {
 		t.Fatalf("status %d, want 400", response.Status)
 	}
 }
-

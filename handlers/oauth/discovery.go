@@ -34,8 +34,8 @@ func (handler *DiscoveryHandler) handleDiscovery(response http.ResponseWriter, r
 		"token_endpoint_auth_methods_supported": []string{"client_secret_basic", "client_secret_post", "none"},
 		"scopes_supported": []string{
 			"openid", "profile", "email",
-			"calendar:read", "calendar:write", "contacts:read", "contacts:write",
-			"photos:read", "photos:write", "files:read", "files:write",
+			"@neoworks/calendar:read", "@neoworks/calendar:write", "@neoworks/contacts:read", "@neoworks/contacts:write",
+			"@neoworks/photos:read", "@neoworks/photos:write", "@neoworks/files:read", "@neoworks/files:write",
 		},
 	})
 }

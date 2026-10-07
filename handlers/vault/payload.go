@@ -18,13 +18,8 @@ const (
 
 var errInvalidPayload = errors.New("invalid payload")
 
-// facetPayload is one encrypted facet of a node on the wire.
-type facetPayload struct {
-	Facet      uint32 `json:"facet"`
-	Ciphertext string `json:"ciphertext"`
-}
-
-// nodePayload is a node as the client sends it (contract section 4).
+// nodePayload is a node as the client sends it (contract section 4). Content is
+// base64url of the facet-framed ciphertexts; a shortcut names its target.
 type nodePayload struct {
 	ID         string         `json:"id"`
 	ParentID   *string        `json:"parentId"`
@@ -33,8 +28,10 @@ type nodePayload struct {
 	Kind       string         `json:"kind"`
 	Epoch      uint32         `json:"epoch"`
 	WrappedKey *string        `json:"wrappedKey"`
-	Content    []facetPayload `json:"content"`
+	Content    string         `json:"content"`
 	Blob       map[string]any `json:"blob"`
+	TargetID   *string        `json:"targetId"`
+	TargetRole *string        `json:"targetRole"`
 	Deleted    bool           `json:"deleted"`
 	BaseSeq    uint64         `json:"baseSeq"`
 	AuthorType string         `json:"authorType"`

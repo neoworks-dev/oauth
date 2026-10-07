@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,7 +24,7 @@ import (
 // tables are declared schemaless; the real schema belongs to the api migrations.
 var tables = []string{
 	"user", "key_bundle", "identity_key", "device", "client", "refresh_token", "install", "certificate",
-	"access_grant", "access_log", "node",
+	"access_grant", "access_log", "node", "registry_schema", "registry_schema_version",
 }
 
 // Surreal is a running in-memory SurrealDB.
@@ -174,6 +175,35 @@ func (surreal *Surreal) CreateClient(clientID string, redirectURIs, clientScopes
 			"redirect_uris": redirectURIs, "scopes": clientScopes, "auto_grant": autoGrant,
 		})
 	return err
+}
+
+// TestDescriptor is the node descriptor test collections are published with: a
+// container whose title is field 1.
+const TestDescriptor = `{"descriptorVersion":1,"models":[{"name":"Folder","fields":[` +
+	`{"ordinal":1,"name":"name","container":{"kind":"singular","nullable":false},` +
+	`"value":{"kind":"scalar","scalar":"string"},"required":true,"constraints":{}}]}],"enums":[],` +
+	`"nodes":[{"kind":"container","model":"Folder","facets":[{"name":"default","tag":1,"fields":[1]}],` +
+	`"searchable":[],"title":1,"timeRange":null}]}`
+
+// PublishCollections publishes each collection as a node schema with
+// TestDescriptor. Publishing again changes nothing.
+func (surreal *Surreal) PublishCollections(collections []string) error {
+	for _, collection := range collections {
+		scope, name, _ := strings.Cut(strings.TrimPrefix(collection, "@"), "/")
+		key := scope + "_" + name
+		_, err := surrealdb.Query[any](context.Background(), surreal.db, `
+			UPSERT $schema SET scope = $scope, name = $name, title = $title, description = 'Test schema',
+				latest_version = '1.0.0', owner = user:publisher;
+			UPSERT $version SET schema = $schema, version = '1.0.0', descriptor = $descriptor;`,
+			map[string]any{
+				"schema": models.NewRecordID("registry_schema", key), "version": models.NewRecordID("registry_schema_version", key),
+				"scope": scope, "name": name, "title": "Test " + name, "descriptor": TestDescriptor,
+			})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Exec runs a statement against the test database.

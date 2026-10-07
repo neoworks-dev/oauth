@@ -40,10 +40,10 @@ test("consent with a narrowed selection yields a token bound to the install", as
   const account = newAccount();
   await signUp(page, account);
 
-  const request = authorizeUrl("e2e-app", "openid calendar:read calendar:write");
+  const request = authorizeUrl("e2e-app", "openid @neoworks/calendar:read @neoworks/calendar:write");
   await page.goto(request.url);
   await expect(page.locator("h1")).toContainText("wants access");
-  await expect(page.locator("#whole-calendar")).toBeChecked();
+  await expect(page.locator("#whole-neoworks-calendar")).toBeChecked();
   await expect(page.locator(".scopes li")).toHaveCount(3);
 
   await page.click("#allow");
@@ -68,30 +68,30 @@ test("sharing with other people is a separate permission that starts unchecked",
   const account = newAccount();
   await signUp(page, account);
 
-  const declined = authorizeUrl("e2e-app", "openid calendar:read calendar:write calendar:share");
+  const declined = authorizeUrl("e2e-app", "openid @neoworks/calendar:read @neoworks/calendar:write @neoworks/calendar:share");
   await page.goto(declined.url);
   await expect(page.locator(".scopes li")).toHaveCount(3);
-  await expect(page.locator("label[for=share-calendar]")).toHaveText("Share your calendars with other people");
-  await expect(page.locator("#share-calendar")).not.toBeChecked();
+  await expect(page.locator("label[for=share-neoworks-calendar]")).toHaveText("Share your Test calendar with other people");
+  await expect(page.locator("#share-neoworks-calendar")).not.toBeChecked();
   await page.click("#allow");
   const withoutShare = await awaitCallback(page);
   const plain = await exchange(page, withoutShare.searchParams.get("code")!, declined.verifier, "e2e-app");
-  expect(plain.body.scope).not.toContain("calendar:share");
+  expect(plain.body.scope).not.toContain("@neoworks/calendar:share");
 
-  const accepted = authorizeUrl("e2e-app", "openid calendar:read calendar:write calendar:share");
+  const accepted = authorizeUrl("e2e-app", "openid @neoworks/calendar:read @neoworks/calendar:write @neoworks/calendar:share");
   await page.goto(accepted.url);
-  await page.check("#share-calendar");
+  await page.check("#share-neoworks-calendar");
   await page.click("#allow");
   const withShare = await awaitCallback(page);
   const shared = await exchange(page, withShare.searchParams.get("code")!, accepted.verifier, "e2e-app");
-  expect(shared.body.scope).toContain("calendar:share");
+  expect(shared.body.scope).toContain("@neoworks/calendar:share");
 });
 
 test("a first-party client is approved without a click", async ({ page }) => {
   const account = newAccount();
   await signUp(page, account);
 
-  const request = authorizeUrl("e2e-first-party", "openid email contacts:read photos:read");
+  const request = authorizeUrl("e2e-first-party", "openid email @neoworks/contacts:read @neoworks/photos:read");
   await page.goto(request.url);
   const callback = await awaitCallback(page);
   const tokens = await exchange(page, callback.searchParams.get("code")!, request.verifier, "e2e-first-party");
@@ -104,7 +104,7 @@ test("login happens on the vault when the browser has no session", async ({ page
   await signUp(page, account);
   await page.click("#sign-out");
 
-  const request = authorizeUrl("e2e-app", "openid files:read");
+  const request = authorizeUrl("e2e-app", "openid @neoworks/files:read");
   await page.goto(request.url);
   await expect(page.locator("h1")).toHaveText("Sign in");
   await expect(page.locator(".subtitle")).toContainText("Test e2e-app");

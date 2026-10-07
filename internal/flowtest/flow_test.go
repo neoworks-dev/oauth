@@ -1,6 +1,7 @@
 package flowtest
 
 import (
+	"context"
 	"net/url"
 	"testing"
 	"time"
@@ -10,13 +11,18 @@ import (
 )
 
 // consentFor builds the body a vault posts to approve an install on the roots
-// of the given collections.
+// of the given collections, carrying the roots the account has none of yet.
 func consentFor(account *testsupport.Account, install testsupport.Install, clientID, challengeID string, grantScopes []string, roles map[string]string) map[string]any {
 	certificate := account.Certificate(testsupport.CertificateParams{
 		InstallID: install.ID, ClientID: clientID,
 		InstallEncPub: wire.EncodeBase64URL(install.EncPub[:]), InstallSignPub: wire.EncodeBase64URL(install.SignPub),
 		Scopes: grantScopes, IssuedAt: time.Now(), ExpiresAt: time.Now().Add(30 * 24 * time.Hour),
 	})
+	collections := []string{}
+	for collection := range roles {
+		collections = append(collections, collection)
+	}
+	roots := account.NewRoots(collections, storedRoots(account))
 	grants := []map[string]any{}
 	for collection, role := range roles {
 		grants = append(grants, account.Grant(account.RootIDs[collection], "install", install.ID, role, 1, nil, install.EncPub, certificate.CertID))
@@ -24,7 +30,17 @@ func consentFor(account *testsupport.Account, install testsupport.Install, clien
 	return map[string]any{
 		"loginChallenge": challengeID, "scopes": grantScopes,
 		"certificate": certificate.Bytes, "certificateSignature": certificate.Signature, "grants": grants,
+		"roots": roots,
 	}
+}
+
+// storedRoots lists the collections the server holds the account's roots in.
+func storedRoots(account *testsupport.Account) []string {
+	collections, err := testSurreal.Store.RootCollections(context.Background(), account.UserID)
+	if err != nil {
+		panic(err)
+	}
+	return collections
 }
 
 func challengeID(location *url.URL) string {
@@ -37,7 +53,7 @@ func TestAuthorizationCodeFlowBindsTokensToTheInstall(t *testing.T) {
 	system.signUp(account)
 	install := testsupport.NewInstall()
 	verifier, challenge := pkce()
-	scope := "openid calendar:read calendar:write contacts:read"
+	scope := "openid @neoworks/calendar:read @neoworks/calendar:write @neoworks/contacts:read"
 
 	location := system.authorize(system.authorizeParams(install, challenge, scope))
 	if !hasPrefix(location.String(), vaultOrigin+"/signin") {
@@ -49,8 +65,8 @@ func TestAuthorizationCodeFlowBindsTokensToTheInstall(t *testing.T) {
 		t.Fatalf("challenge view: %d %s", view.Status, view.Raw)
 	}
 
-	grantScopes := []string{"openid", "calendar:read", "calendar:write", "contacts:read"}
-	body := consentFor(account, install, system.clientID, challengeID(location), grantScopes, map[string]string{"calendar": "write", "contacts": "read"})
+	grantScopes := []string{"openid", "@neoworks/calendar:read", "@neoworks/calendar:write", "@neoworks/contacts:read"}
+	body := consentFor(account, install, system.clientID, challengeID(location), grantScopes, map[string]string{"@neoworks/calendar": "write", "@neoworks/contacts": "read"})
 	consent := system.browser.Do("POST", "/vault/consent", body, nil)
 	if consent.Status != 200 {
 		t.Fatalf("consent: %d %s", consent.Status, consent.Raw)
@@ -109,12 +125,12 @@ func TestAuthorizeRequiresPKCEAndInstallForDataScopes(t *testing.T) {
 		},
 		"partial install":  func(params url.Values) { params.Del("install_sign_pub") },
 		"bad install key":  func(params url.Values) { params.Set("install_enc_pub", "AAAA") },
-		"unknown scope":    func(params url.Values) { params.Set("scope", "calendar:admin") },
+		"unknown scope":    func(params url.Values) { params.Set("scope", "@neoworks/calendar:admin") },
 		"non uuid install": func(params url.Values) { params.Set("install_id", "install-1") },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
-			params := system.authorizeParams(install, challenge, "calendar:read")
+			params := system.authorizeParams(install, challenge, "@neoworks/calendar:read")
 			mutate(params)
 			location := system.authorize(params)
 			if location.Query().Get("error") != "invalid_request" && location.Query().Get("error") != "invalid_scope" {
@@ -133,8 +149,8 @@ func TestTokenExchangeChecksPKCE(t *testing.T) {
 	system.signUp(account)
 	install := testsupport.NewInstall()
 	verifier, challenge := pkce()
-	location := system.authorize(system.authorizeParams(install, challenge, "contacts:read"))
-	body := consentFor(account, install, system.clientID, challengeID(location), []string{"contacts:read"}, map[string]string{"contacts": "read"})
+	location := system.authorize(system.authorizeParams(install, challenge, "@neoworks/contacts:read"))
+	body := consentFor(account, install, system.clientID, challengeID(location), []string{"@neoworks/contacts:read"}, map[string]string{"@neoworks/contacts": "read"})
 	consent := system.browser.Do("POST", "/vault/consent", body, nil)
 	redirect, _ := url.Parse(consent.Body["redirect"].(string))
 	code := redirect.Query().Get("code")
@@ -154,7 +170,7 @@ func TestConsentRejectsBadCertificatesAndGrants(t *testing.T) {
 	stranger := testsupport.NewAccount("stranger@example.com")
 	install := testsupport.NewInstall()
 	_, challenge := pkce()
-	scopes := []string{"calendar:read"}
+	scopes := []string{"@neoworks/calendar:read"}
 
 	cases := map[string]func(body map[string]any){
 		"certificate signed by another key": func(body map[string]any) {
@@ -170,7 +186,7 @@ func TestConsentRejectsBadCertificatesAndGrants(t *testing.T) {
 				InstallSignPub: wire.EncodeBase64URL(install.SignPub), Scopes: scopes, IssuedAt: time.Now(), ExpiresAt: time.Now().Add(time.Hour),
 			})
 			body["certificate"], body["certificateSignature"] = cert.Bytes, cert.Signature
-			body["grants"] = []map[string]any{account.Grant(account.RootIDs["calendar"], "install", install.ID, "write", 1, nil, install.EncPub, cert.CertID)}
+			body["grants"] = []map[string]any{account.Grant(account.RootIDs["@neoworks/calendar"], "install", install.ID, "write", 1, nil, install.EncPub, cert.CertID)}
 		},
 		"admin role": func(body map[string]any) {
 			cert := account.Certificate(testsupport.CertificateParams{
@@ -178,16 +194,16 @@ func TestConsentRejectsBadCertificatesAndGrants(t *testing.T) {
 				InstallSignPub: wire.EncodeBase64URL(install.SignPub), Scopes: scopes, IssuedAt: time.Now(), ExpiresAt: time.Now().Add(time.Hour),
 			})
 			body["certificate"], body["certificateSignature"] = cert.Bytes, cert.Signature
-			body["grants"] = []map[string]any{account.Grant(account.RootIDs["calendar"], "install", install.ID, "admin", 1, nil, install.EncPub, cert.CertID)}
+			body["grants"] = []map[string]any{account.Grant(account.RootIDs["@neoworks/calendar"], "install", install.ID, "admin", 1, nil, install.EncPub, cert.CertID)}
 		},
 		"node of another user": func(body map[string]any) {
-			body["grants"] = []map[string]any{stranger.Grant(stranger.RootIDs["calendar"], "install", install.ID, "read", 1, nil, install.EncPub, "")}
+			body["grants"] = []map[string]any{stranger.Grant(stranger.RootIDs["@neoworks/calendar"], "install", install.ID, "read", 1, nil, install.EncPub, "")}
 		},
 		"grant to another install": func(body map[string]any) {
 			other := testsupport.NewInstall()
 			cert := body["certificate"].(string)
 			_ = cert
-			body["grants"] = []map[string]any{account.Grant(account.RootIDs["calendar"], "install", other.ID, "read", 1, nil, other.EncPub, "")}
+			body["grants"] = []map[string]any{account.Grant(account.RootIDs["@neoworks/calendar"], "install", other.ID, "read", 1, nil, other.EncPub, "")}
 		},
 		"no grants": func(body map[string]any) {
 			body["grants"] = []map[string]any{}
@@ -200,13 +216,13 @@ func TestConsentRejectsBadCertificatesAndGrants(t *testing.T) {
 			body["certificate"], body["certificateSignature"] = cert.Bytes, cert.Signature
 		},
 		"scope not requested": func(body map[string]any) {
-			body["scopes"] = []string{"calendar:read", "files:read"}
+			body["scopes"] = []string{"@neoworks/calendar:read", "@neoworks/files:read"}
 		},
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
-			location := system.authorize(system.authorizeParams(install, challenge, "calendar:read"))
-			body := consentFor(account, install, system.clientID, challengeID(location), scopes, map[string]string{"calendar": "read"})
+			location := system.authorize(system.authorizeParams(install, challenge, "@neoworks/calendar:read"))
+			body := consentFor(account, install, system.clientID, challengeID(location), scopes, map[string]string{"@neoworks/calendar": "read"})
 			mutate(body)
 			response := system.browser.Do("POST", "/vault/consent", body, nil)
 			if response.Status != 400 {
@@ -222,8 +238,8 @@ func TestRevokedInstallLosesRefreshAndIntrospection(t *testing.T) {
 	system.signUp(account)
 	install := testsupport.NewInstall()
 	verifier, challenge := pkce()
-	location := system.authorize(system.authorizeParams(install, challenge, "photos:read"))
-	body := consentFor(account, install, system.clientID, challengeID(location), []string{"photos:read"}, map[string]string{"photos": "read"})
+	location := system.authorize(system.authorizeParams(install, challenge, "@neoworks/photos:read"))
+	body := consentFor(account, install, system.clientID, challengeID(location), []string{"@neoworks/photos:read"}, map[string]string{"@neoworks/photos": "read"})
 	consent := system.browser.Do("POST", "/vault/consent", body, nil)
 	redirect, _ := url.Parse(consent.Body["redirect"].(string))
 	issued := system.exchange(redirect.Query().Get("code"), verifier)
@@ -282,5 +298,78 @@ func TestIdentityScopesWithInstallParametersIssueAnInstalllessToken(t *testing.T
 	introspection := system.introspect(accessToken, accessToken)
 	if issued.Body["neoworks_grant"] != nil || introspection.Body["install_id"] != nil || introspection.Body["sub"] != account.UserID {
 		t.Fatalf("identity-only tokens carry no install: %s / %s", issued.Raw, introspection.Raw)
+	}
+}
+
+func TestConsentCreatesOnlyNewEmptyRootsOfApprovedCollections(t *testing.T) {
+	system := newSystem(t)
+	account := system.freshAccount("roots")
+	install := testsupport.NewInstall()
+	_, challenge := pkce()
+	scopes := []string{"@neoworks/calendar:read"}
+
+	cases := map[string]func(body map[string]any){
+		"root of a collection not approved": func(body map[string]any) {
+			extra := account.NewRoots([]string{"@neoworks/files"}, nil)
+			body["roots"] = append(body["roots"].([]map[string]any), extra...)
+		},
+		"root with content": func(body map[string]any) {
+			root := body["roots"].([]map[string]any)[0]["node"].(map[string]any)
+			root["content"] = "CgNhYmM"
+		},
+		"owner grant sealed over other keys": func(body map[string]any) {
+			grant := body["roots"].([]map[string]any)[0]["grant"].(map[string]any)
+			grant["wrappedKeys"] = wire.EncodeBase64URL(testsupport.Seal(account.EncPub, make([]byte, 32)))
+		},
+		"owner grant for another principal": func(body map[string]any) {
+			grant := body["roots"].([]map[string]any)[0]["grant"].(map[string]any)
+			grant["principalId"] = testsupport.NewAccount("other@example.com").UserID
+		},
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			location := system.authorize(system.authorizeParams(install, challenge, "@neoworks/calendar:read"))
+			body := consentFor(account, install, system.clientID, challengeID(location), scopes, map[string]string{"@neoworks/calendar": "read"})
+			mutate(body)
+			response := system.browser.Do("POST", "/vault/consent", body, nil)
+			if response.Status != 400 || response.Body["error"] != "invalid_roots" {
+				t.Fatalf("status %d (%s), want 400 invalid_roots", response.Status, response.Raw)
+			}
+		})
+	}
+
+	location := system.authorize(system.authorizeParams(install, challenge, "@neoworks/calendar:read"))
+	body := consentFor(account, install, system.clientID, challengeID(location), scopes, map[string]string{"@neoworks/calendar": "read"})
+	if response := system.browser.Do("POST", "/vault/consent", body, nil); response.Status != 200 {
+		t.Fatalf("the first consent should create the calendar root: %d %s", response.Status, response.Raw)
+	}
+	account.CommitGrants()
+	tree := system.browser.Do("GET", "/vault/tree", nil, nil)
+	schemas, _ := tree.Body["schemas"].(map[string]any)
+	if len(tree.Body["nodes"].([]any)) != 1 || schemas["@neoworks/calendar"] == nil {
+		t.Fatalf("the tree should hold the new root and its collection's schema: %s", tree.Raw)
+	}
+
+	again := testsupport.NewInstall()
+	location = system.authorize(system.authorizeParams(again, challenge, "@neoworks/calendar:read"))
+	second := consentFor(account, again, system.clientID, challengeID(location), scopes, map[string]string{"@neoworks/calendar": "read"})
+	second["roots"] = []map[string]any{{"node": body["roots"].([]map[string]any)[0]["node"], "grant": body["roots"].([]map[string]any)[0]["grant"]}}
+	if response := system.browser.Do("POST", "/vault/consent", second, nil); response.Body["error"] != "invalid_roots" {
+		t.Fatalf("a second root in a collection: %d %s, want invalid_roots", response.Status, response.Raw)
+	}
+}
+
+func TestAuthorizeRefusesCollectionsThatAreNotPublishedNodeSchemas(t *testing.T) {
+	system := newSystem(t)
+	install := testsupport.NewInstall()
+	_, challenge := pkce()
+	if err := testSurreal.CreateClient("unpublished-"+install.ID[:8], []string{appRedirect}, []string{"@nobody/unpublished:read"}, false); err != nil {
+		t.Fatal(err)
+	}
+	params := system.authorizeParams(install, challenge, "@nobody/unpublished:read")
+	params.Set("client_id", "unpublished-"+install.ID[:8])
+	location := system.authorize(params)
+	if location.Query().Get("error") != "invalid_scope" {
+		t.Fatalf("expected invalid_scope, got %s", location)
 	}
 }
