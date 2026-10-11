@@ -193,24 +193,46 @@ const TestDescriptor = `{"descriptorVersion":1,"models":[{"name":"Folder","field
 	`"searchable":[],"title":1,"timeRange":null}]}`
 
 // PublishCollections publishes each collection as a node schema with
-// TestDescriptor. Publishing again changes nothing.
+// TestDescriptor, unless the registry already holds it, as it does after the api
+// migrations seed the @neoworks schemas.
 func (surreal *Surreal) PublishCollections(collections []string) error {
 	for _, collection := range collections {
 		scope, name, _ := strings.Cut(strings.TrimPrefix(collection, "@"), "/")
-		key := scope + "_" + name
-		_, err := surrealdb.Query[any](context.Background(), surreal.db, `
-			UPSERT $schema SET scope = $scope, name = $name, title = $title, description = 'Test schema',
-				latest_version = '1.0.0', owner = user:publisher;
-			UPSERT $version SET schema = $schema, version = '1.0.0', descriptor = $descriptor;`,
-			map[string]any{
-				"schema": models.NewRecordID("registry_schema", key), "version": models.NewRecordID("registry_schema_version", key),
-				"scope": scope, "name": name, "title": "Test " + name, "descriptor": TestDescriptor,
-			})
-		if err != nil {
+		published, err := surreal.isPublished(scope, name)
+		if err != nil || published {
+			if err != nil {
+				return err
+			}
+			continue
+		}
+		if err := surreal.publishTestSchema(scope, name); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (surreal *Surreal) isPublished(scope string, name string) (bool, error) {
+	results, err := surrealdb.Query[[]any](context.Background(), surreal.db,
+		"SELECT id FROM registry_schema WHERE scope = $scope AND name = $name",
+		map[string]any{"scope": scope, "name": name})
+	if err != nil {
+		return false, err
+	}
+	return len((*results)[0].Result) > 0, nil
+}
+
+func (surreal *Surreal) publishTestSchema(scope string, name string) error {
+	key := scope + "_" + name
+	_, err := surrealdb.Query[any](context.Background(), surreal.db, `
+		UPSERT $schema SET scope = $scope, name = $name, title = $title, description = 'Test schema',
+			latest_version = '1.0.0';
+		UPSERT $version SET schema = $schema, version = '1.0.0', descriptor = $descriptor;`,
+		map[string]any{
+			"schema": models.NewRecordID("registry_schema", key), "version": models.NewRecordID("registry_schema_version", key),
+			"scope": scope, "name": name, "title": "Test " + name, "descriptor": TestDescriptor,
+		})
+	return err
 }
 
 // Exec runs a statement against the test database.
