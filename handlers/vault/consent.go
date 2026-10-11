@@ -386,6 +386,10 @@ func (server *Server) issueAuthorizationCode(response http.ResponseWriter, reque
 		writeError(response, http.StatusConflict, "challenge_used")
 		return
 	}
+	if err := server.store.RecordAuthorization(ctx, consent.userID, challenge.ClientID, consent.approved); err != nil {
+		writeError(response, http.StatusInternalServerError, "server_error")
+		return
+	}
 	code := newAuthorizationCode()
 	authCode := cache.AuthCode{
 		Code: code, ClientID: challenge.ClientID, UserID: consent.userID, RedirectURI: challenge.RedirectURI,

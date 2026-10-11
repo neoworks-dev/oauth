@@ -24,7 +24,7 @@ import (
 // tables are declared schemaless; the real schema belongs to the api migrations.
 var tables = []string{
 	"user", "key_bundle", "identity_key", "device", "client", "refresh_token", "install", "certificate",
-	"access_grant", "access_log", "node", "registry_schema", "registry_schema_version",
+	"access_grant", "access_log", "grant", "node", "registry_schema", "registry_schema_version",
 }
 
 // Surreal is a running in-memory SurrealDB.
@@ -113,8 +113,15 @@ func defineSchema(ctx context.Context, db *surrealdb.DB) error {
 			return err
 		}
 	}
-	return nil
+	_, err := surrealdb.Query[any](ctx, db, schemalessFunctions, nil)
+	return err
 }
+
+// schemalessFunctions stand in for the api functions the stores call: the
+// change counter and the key rotation flag, which need the real node schema.
+const schemalessFunctions = `
+	DEFINE FUNCTION fn::next_seq() { RETURN 0; };
+	DEFINE FUNCTION fn::flag_for_rotation($node_id: string, $whole_node: bool) { RETURN NONE; };`
 
 // migrationsDirectory is NEOWORKS_MIGRATIONS, the api migrations to test the
 // stores against. Without it the tables are schemaless.
@@ -164,15 +171,15 @@ func NewRedis(t testing.TB) (*miniredis.Miniredis, *cache.Store) {
 }
 
 // CreateClient registers an OAuth client, which the api migrations seed in production.
-func (surreal *Surreal) CreateClient(clientID string, redirectURIs, clientScopes []string, autoGrant bool) error {
+func (surreal *Surreal) CreateClient(clientID string, redirectURIs, clientScopes []string, firstParty bool) error {
 	_, err := surrealdb.Query[any](context.Background(), surreal.db, `
 		CREATE $id CONTENT {
 			name: $name, redirect_uris: $redirect_uris, scopes: $scopes,
-			auto_grant_scopes: $auto_grant, public: true
+			first_party: $first_party, public: true
 		}`,
 		map[string]any{
 			"id": models.NewRecordID("client", clientID), "name": "Test " + clientID,
-			"redirect_uris": redirectURIs, "scopes": clientScopes, "auto_grant": autoGrant,
+			"redirect_uris": redirectURIs, "scopes": clientScopes, "first_party": firstParty,
 		})
 	return err
 }

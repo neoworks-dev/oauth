@@ -57,3 +57,33 @@
 textarea {
   width: 100%;
 }
+
+.app-badge {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  color: var(--text-muted);
+}
+
+.scope-tag {
+  border-radius: var(--radius-full);
+  padding: 1px 8px;
+  font-size: 0.8em;
+  border: 1px solid var(--border-strong);
+}
+
+.scope-new .scope-tag {
+  color: var(--ctx-green);
+  border-color: var(--ctx-green);
+}
+
+.scope-widened .scope-tag {
+  color: var(--ctx-red);
+  border-color: var(--ctx-red);
+}
+
+.access-nodes {
+  list-style: none;
+  padding-left: 16px;
+  color: var(--text-muted);
+}

@@ -146,3 +146,30 @@ func ReadWrite(collections []string) []string {
 	}
 	return granted
 }
+
+// Retain returns the scopes a client holds after an approval: the approved
+// ones, plus the collection scopes it held before in collections the approval
+// does not mention.
+func Retain(held, approved []string) []string {
+	approvedCollections := Collections(approved)
+	retained := slices.Clone(approved)
+	for _, scope := range held {
+		collection, _, ok := collectionScope(scope)
+		if ok && !slices.Contains(approvedCollections, collection) {
+			retained = append(retained, scope)
+		}
+	}
+	return retained
+}
+
+// WithoutCollection returns the scopes minus every scope of one collection.
+func WithoutCollection(held []string, collection string) []string {
+	remaining := []string{}
+	for _, scope := range held {
+		scopeCollection, _, ok := collectionScope(scope)
+		if !ok || scopeCollection != collection {
+			remaining = append(remaining, scope)
+		}
+	}
+	return remaining
+}

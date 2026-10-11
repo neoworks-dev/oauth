@@ -34,6 +34,11 @@ type Store interface {
 	IsDeviceActive(ctx context.Context, userID, deviceID string) (bool, error)
 	GetInstall(ctx context.Context, installID string) (*store.Install, error)
 	SaveInstallConsent(ctx context.Context, consent store.InstallConsent) error
+	GetAuthorization(ctx context.Context, userID, clientID string) (*store.Authorization, error)
+	RecordAuthorization(ctx context.Context, userID, clientID string, approved []string) error
+	ListClientInstalls(ctx context.Context, userID, clientID string) ([]store.Install, error)
+	ListClientAccess(ctx context.Context, userID, clientID string) ([]store.HeldAccess, error)
+	RevokeClientCollection(ctx context.Context, userID, clientID, collection string) error
 	SaveRefreshToken(ctx context.Context, token store.RefreshToken) error
 	ListStructure(ctx context.Context, userID string) ([]store.Node, error)
 	CollectionSchemas(ctx context.Context, collections []string) (map[string]store.CollectionSchema, error)
@@ -136,6 +141,7 @@ func (server *Server) registerAuthenticated(api chi.Router) {
 	api.Post("/token", server.handleToken)
 	api.Get("/tree", server.handleTree)
 	api.Post("/consent", server.handleConsent)
+	api.Post("/consent/revoke", server.handleRevokeKept)
 	api.Post("/deny", server.handleDeny)
 	api.Post("/password", server.handleChangePassword)
 	api.Post("/rotate", server.handleRotate)

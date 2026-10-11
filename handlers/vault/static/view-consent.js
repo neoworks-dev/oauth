@@ -3,12 +3,14 @@
 
 import { ApiError, describeError, isChallengeGone, getJson, postJson } from "./nw-api.js";
 import { buildCertificate } from "./nw-nodes.js";
+import { canSkipConsent } from "./nw-consent-history.js";
 import { buildInstallGrants, buildKeyIndex, describeCollections, describeSharedNodes, heldRoles, planNewRoots } from "./nw-consent-tree.js";
 import { errorBox, h, withBusy } from "./nw-dom.js";
 import { requireUnlocked } from "./nw-keystore.js";
 import { heading, mountView } from "./nw-layout.js";
 import { collectionLabel, collectionOf, collectionRoles, describeScope, describeShare, isShareScope, shareCollections } from "./nw-scopes.js";
 import { hash, utf8 } from "./nw-primitives.js";
+import { historySections, loadHeldNames, shareTag, thirdPartyNotice } from "./view-consent-history.js";
 
 const CERTIFICATE_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -159,10 +161,15 @@ function addNewRoots(plan, planned) {
   Object.assign(plan.collectionTrees, planned.trees);
 }
 
+// scopeList is the plain list of requested scopes, for an app the user has not
+// authorized before; the history sections replace it otherwise.
 function scopeList(challenge) {
+  if (challenge.history !== null) {
+    return [];
+  }
   const shown = challenge.scopes.filter((scope) => !isShareScope(scope));
   const published = registryCollections(challenge);
-  return h("ul", { class: "scopes" }, shown.map((scope) => h("li", null, describeScope(scope, published))));
+  return [h("ul", { class: "scopes" }, shown.map((scope) => h("li", null, describeScope(scope, published))))];
 }
 
 // shareChoices renders the optional permission to share a collection with other
@@ -172,7 +179,7 @@ function shareChoices(plan) {
     .filter((collection) => plan.selections[collection] !== undefined)
     .map((collection) => {
       plan.shares[collection] = false;
-      return nodeCheckbox("share-" + elementKey(collection), describeShare(collection, registryCollections(plan.challenge)), 0, false, false, (checked) => {
+      return nodeCheckbox("share-" + elementKey(collection), describeShare(collection, registryCollections(plan.challenge)) + shareTag(plan.challenge, collection + ":share"), 0, false, false, (checked) => {
         plan.shares[collection] = checked;
       });
     });
@@ -246,18 +253,27 @@ function pickers(plan) {
     collectionPicker(collection, plan.collectionTrees[collection], selection, sharedFor(plan, collection)));
 }
 
+// refreshChallenge reloads the request now that a user is signed in, so the
+// view carries that user's history with the app.
+async function refreshChallenge(context) {
+  context.challenge = await getJson("/vault/challenge" + context.challengeQuery);
+}
+
 export async function renderConsent(context) {
-  const challenge = context.challenge;
   const failure = errorBox();
   let plan;
+  let heldNames;
   try {
+    await refreshChallenge(context);
     plan = await loadPlan(context);
+    heldNames = await loadHeldNames(context.challenge.history);
   } catch (error) {
     showConsentFailure(context, error);
     return;
   }
+  const challenge = context.challenge;
   const choices = shareChoices(plan);
-  if (challenge.autoGrant && choices.length === 0) {
+  if (canSkipConsent(challenge, choices.length)) {
     await submitApproval(context, plan);
     return;
   }
@@ -276,15 +292,16 @@ export async function renderConsent(context) {
   const deny = h("button", { type: "button", class: "secondary", id: "deny", onclick: () => denyRequest(context) }, "Deny");
   mountView(context,
     ...heading(challenge.clientName + " wants access", context.session.email),
-    installDetails(challenge), scopeList(challenge), ...pickers(plan), ...choices, failure.element,
+    ...thirdPartyNotice(challenge), ...installDetails(challenge), ...scopeList(challenge),
+    ...historySections(context, heldNames), ...pickers(plan), ...choices, failure.element,
     h("div", { class: "actions" }, deny, allow));
 }
 
 function installDetails(challenge) {
   if (!challenge.install) {
-    return null;
+    return [];
   }
-  return h("p", { class: "hint" }, "App installation: " + challenge.install.name + " (key " + installFingerprint(challenge.install) + ")");
+  return [h("p", { class: "hint" }, "App installation: " + challenge.install.name + " (key " + installFingerprint(challenge.install) + ")")];
 }
 
 // showConsentFailure replaces the consent screen; an expired or used request

@@ -87,6 +87,47 @@ test("sharing with other people is a separate permission that starts unchecked",
   expect(shared.body.scope).toContain("@neoworks/calendar:share");
 });
 
+test("a third-party app is marked and shows its history when the user returns", async ({ page }) => {
+  const account = newAccount();
+  await signUp(page, account);
+
+  const first = authorizeUrl("e2e-app", "openid @neoworks/calendar:read");
+  await page.goto(first.url);
+  await expect(page.locator("#third-party-notice")).toBeVisible();
+  await expect(page.locator("#returning-app")).toHaveCount(0);
+  await page.click("#allow");
+  await awaitCallback(page);
+
+  const again = authorizeUrl("e2e-app", "openid @neoworks/calendar:read");
+  await page.goto(again.url);
+  await expect(page.locator("h1")).toContainText("wants access");
+  await expect(page.locator("#third-party-notice")).toBeVisible();
+  await expect(page.locator("#returning-app")).toContainText("You have used Test e2e-app before");
+  await expect(page.locator("#install-names")).toContainText("Test calendar");
+  await expect(page.locator("#granted-access > li")).toHaveCount(1);
+  await expect(page.locator("#nothing-new")).toBeVisible();
+  await page.click("#deny");
+});
+
+test("widened and new access stands out, and kept access can be revoked", async ({ page }) => {
+  const account = newAccount();
+  await signUp(page, account);
+
+  const first = authorizeUrl("e2e-app", "openid @neoworks/calendar:read @neoworks/contacts:read");
+  await page.goto(first.url);
+  await page.click("#allow");
+  await awaitCallback(page);
+
+  const later = authorizeUrl("e2e-app", "openid @neoworks/calendar:write @neoworks/photos:read");
+  await page.goto(later.url);
+  await expect(page.locator("#requested-access li.scope-widened")).toHaveCount(1);
+  await expect(page.locator("#requested-access li.scope-new")).toHaveCount(1);
+  await expect(page.locator("#kept-access > li")).toHaveCount(1);
+  await page.click("[data-revoke='@neoworks/contacts']");
+  await expect(page.locator("#kept-access > li")).toHaveCount(0);
+  await page.click("#deny");
+});
+
 test("a first-party client is approved without a click", async ({ page }) => {
   const account = newAccount();
   await signUp(page, account);
@@ -104,7 +145,7 @@ test("login happens on the vault when the browser has no session", async ({ page
   await signUp(page, account);
   await page.click("#sign-out");
 
-  const request = authorizeUrl("e2e-app", "openid @neoworks/files:read");
+  const request = authorizeUrl("e2e-app", "openid @neoworks/contacts:read");
   await page.goto(request.url);
   await expect(page.locator("h1")).toHaveText("Sign in");
   await expect(page.locator(".subtitle")).toContainText("Test e2e-app");

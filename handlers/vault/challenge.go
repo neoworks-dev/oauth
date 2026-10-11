@@ -5,22 +5,26 @@ import (
 	"net/url"
 
 	"github.com/neoworks/oauth/internal/cache"
-	"github.com/neoworks/oauth/internal/scopes"
 	"github.com/neoworks/oauth/internal/store"
 )
 
 // challengeView is what the consent screen needs to know about a pending
 // authorization request.
 type challengeView struct {
-	ClientID       string       `json:"clientId"`
-	ClientName     string       `json:"clientName"`
-	Scopes         []string     `json:"scopes"`
-	AutoGrant      bool         `json:"autoGrant"`
+	ClientID   string   `json:"clientId"`
+	ClientName string   `json:"clientName"`
+	Scopes     []string `json:"scopes"`
+	// FirstParty is true for Neoworks' own apps, the only ones that may skip the
+	// consent screen.
+	FirstParty     bool         `json:"firstParty"`
 	RedirectOrigin string       `json:"redirectOrigin"`
 	Install        *installView `json:"install"`
-	// Collections are the registry schemas of the collections the scopes name,
-	// for their titles and node descriptors.
+	// Collections are the registry schemas of the collections the request and
+	// the app's earlier authorization name, for their titles and node descriptors.
 	Collections map[string]store.CollectionSchema `json:"collections"`
+	// History is what the signed-in user earlier authorized for this app; null
+	// when the user never did or is not signed in.
+	History *historyView `json:"history"`
 }
 
 type installView struct {
@@ -41,7 +45,12 @@ func (server *Server) handleChallenge(response http.ResponseWriter, request *htt
 		writeError(response, http.StatusNotFound, "challenge_not_found")
 		return
 	}
-	collections, err := server.store.CollectionSchemas(request.Context(), scopes.Collections(challenge.Scopes))
+	history, err := server.historyFor(request, client.ID)
+	if err != nil {
+		writeError(response, http.StatusInternalServerError, "server_error")
+		return
+	}
+	collections, err := server.store.CollectionSchemas(request.Context(), challengeCollections(challenge.Scopes, history))
 	if err != nil {
 		writeError(response, http.StatusInternalServerError, "server_error")
 		return
@@ -50,10 +59,11 @@ func (server *Server) handleChallenge(response http.ResponseWriter, request *htt
 		ClientID:       client.ID,
 		ClientName:     displayName(client.Name, client.ID),
 		Scopes:         challenge.Scopes,
-		AutoGrant:      client.AutoGrantScopes,
+		FirstParty:     client.FirstParty,
 		RedirectOrigin: originOf(challenge.RedirectURI),
 		Install:        installViewOf(challenge.Install),
 		Collections:    collections,
+		History:        history,
 	}
 	writeJSON(response, http.StatusOK, view)
 }

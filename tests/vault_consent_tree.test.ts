@@ -106,6 +106,15 @@ describe("consent tree", () => {
     expect(described[calendar].containers.map((entry: any) => [entry.name, entry.depth])).toEqual([["Work", 1], ["Projects", 2]]);
   });
 
+  test("names the given nodes and skips the ones it cannot open", () => {
+    const owned = ownerTree();
+    const index = tree.buildKeyIndex(owned.tree, owned.identity);
+    const names = tree.nodeNames(owned.tree, index, [owned.calendarRoot.id, owned.nested.node.id, "unknown-node"]);
+    expect(names.get(owned.calendarRoot.id)).toBe("Calendar");
+    expect(names.get(owned.nested.node.id)).toBe("Projects");
+    expect(names.has("unknown-node")).toBe(false);
+  });
+
   test("a different identity cannot open any root", () => {
     const owned = ownerTree();
     const stranger = account.createIdentity();

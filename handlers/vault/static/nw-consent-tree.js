@@ -113,6 +113,20 @@ export function describeCollections(tree, index, userId, collections, labels) {
   return described;
 }
 
+// nodeNames maps each given node id the user can open to its display name: the
+// collection title for a root, otherwise the node's title field.
+export function nodeNames(tree, index, nodeIds) {
+  const descriptors = parseDescriptors(tree.schemas);
+  const names = new Map();
+  for (const nodeId of nodeIds) {
+    const entry = index.get(nodeId);
+    if (entry !== undefined) {
+      names.set(nodeId, readName(entry.node, entry.key, descriptors));
+    }
+  }
+  return names;
+}
+
 function describeNode(index, node, depth, descriptors) {
   const entry = index.get(node.id);
   return { id: node.id, name: readName(node, entry.key, descriptors), depth, collection: node.collection, ownerEmail: node.ownerEmail };
