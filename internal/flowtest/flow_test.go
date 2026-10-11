@@ -216,7 +216,7 @@ func TestConsentRejectsBadCertificatesAndGrants(t *testing.T) {
 			body["certificate"], body["certificateSignature"] = cert.Bytes, cert.Signature
 		},
 		"scope not requested": func(body map[string]any) {
-			body["scopes"] = []string{"@neoworks/calendar:read", "@neoworks/files:read"}
+			body["scopes"] = []string{"@neoworks/calendar:read", "@neoworks/contacts:read"}
 		},
 	}
 	for name, mutate := range cases {
@@ -310,7 +310,7 @@ func TestConsentCreatesOnlyNewEmptyRootsOfApprovedCollections(t *testing.T) {
 
 	cases := map[string]func(body map[string]any){
 		"root of a collection not approved": func(body map[string]any) {
-			extra := account.NewRoots([]string{"@neoworks/files"}, nil)
+			extra := account.NewRoots([]string{"@neoworks/contacts"}, nil)
 			body["roots"] = append(body["roots"].([]map[string]any), extra...)
 		},
 		"root with content": func(body map[string]any) {

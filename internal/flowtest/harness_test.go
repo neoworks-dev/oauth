@@ -92,7 +92,7 @@ func allScopes() []string {
 	return []string{
 		"openid", "profile", "email",
 		"@neoworks/calendar:read", "@neoworks/calendar:write", "@neoworks/contacts:read", "@neoworks/contacts:write",
-		"@neoworks/photos:read", "@neoworks/photos:write", "@neoworks/files:read", "@neoworks/files:write",
+		"@neoworks/photos:read", "@neoworks/photos:write",
 		"@neoworks/calendar:share", "@neoworks/contacts:share",
 	}
 }

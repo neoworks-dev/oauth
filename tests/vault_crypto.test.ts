@@ -117,7 +117,7 @@ describe("nodes", () => {
 
   test("the root signature verifies over the write message", () => {
     const identity = account.createIdentity();
-    const { node } = nodes.createRootNode({ userId: "user-1", collection: "@neoworks/files", identity });
+    const { node } = nodes.createRootNode({ userId: "user-1", collection: "@neoworks/contacts", identity });
     const signature = primitives.decodeBase64Url(node.signature);
     expect(primitives.verify(identity.signPub, nodes.nodeWriteMessage(node), signature)).toBe(true);
     expect(primitives.verify(identity.signPub, nodes.nodeWriteMessage({ ...node, epoch: 2 }), signature)).toBe(false);

@@ -14,7 +14,7 @@ import (
 
 // TestCollections are the collections tests ask for, each published as a node
 // schema by PublishCollections.
-var TestCollections = []string{"@neoworks/calendar", "@neoworks/contacts", "@neoworks/photos", "@neoworks/files"}
+var TestCollections = []string{"@neoworks/calendar", "@neoworks/contacts", "@neoworks/photos"}
 
 // Account is a user as the browser would create it: random keys, and the root
 // node of each test collection with the owner's grant, sent at the first

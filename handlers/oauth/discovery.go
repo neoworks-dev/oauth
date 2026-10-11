@@ -7,6 +7,11 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+// fixedScopes are the scopes every client may ask for. Collection scopes are
+// open-ended (`@scope/name:read|write|share` for any published collection), so
+// they cannot be listed here without drifting from the registry.
+var fixedScopes = []string{"openid", "profile", "email"}
+
 type DiscoveryHandler struct {
 	issuerURL string
 }
@@ -32,10 +37,6 @@ func (handler *DiscoveryHandler) handleDiscovery(response http.ResponseWriter, r
 		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
 		"code_challenge_methods_supported":      []string{"S256"},
 		"token_endpoint_auth_methods_supported": []string{"client_secret_basic", "client_secret_post", "none"},
-		"scopes_supported": []string{
-			"openid", "profile", "email",
-			"@neoworks/calendar:read", "@neoworks/calendar:write", "@neoworks/contacts:read", "@neoworks/contacts:write",
-			"@neoworks/photos:read", "@neoworks/photos:write", "@neoworks/files:read", "@neoworks/files:write",
-		},
+		"scopes_supported":                      fixedScopes,
 	})
 }

@@ -88,7 +88,7 @@ func seedClients(surreal *testsupport.Surreal, oauthURL string) {
 	redirects := []string{"http://localhost:19000/callback"}
 	scopes := []string{
 		"openid", "profile", "email", "@neoworks/calendar:read", "@neoworks/calendar:write", "@neoworks/contacts:read", "@neoworks/contacts:write",
-		"@neoworks/photos:read", "@neoworks/photos:write", "@neoworks/files:read", "@neoworks/files:write",
+		"@neoworks/photos:read", "@neoworks/photos:write",
 		"@neoworks/calendar:share",
 	}
 	if err := surreal.PublishCollections(testsupport.TestCollections); err != nil {
