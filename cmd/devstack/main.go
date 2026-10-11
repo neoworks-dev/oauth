@@ -104,6 +104,25 @@ func seedClients(surreal *testsupport.Surreal, oauthURL string) {
 	if err := surreal.CreateClient("neoworks-authenticator", redirects, identityScopes, true); err != nil {
 		log.Fatal(err)
 	}
+	seedVerifiedClient(surreal, redirects, scopes)
+}
+
+// seedVerifiedClient registers a third-party app of the organization Acme whose
+// domains are verified and which Neoworks approved, and the Neoworks handle that
+// owns the @neoworks collections.
+func seedVerifiedClient(surreal *testsupport.Surreal, redirects []string, scopes []string) {
+	err := surreal.Exec(`
+		UPSERT organization:neoworks SET display_name = 'Neoworks';
+		UPSERT handle:neoworks SET kind = 'organization', organization = organization:neoworks;
+		UPSERT organization:acme SET display_name = 'Acme';
+		UPSERT handle:acme SET kind = 'organization', organization = organization:acme;
+		CREATE type::record('client', 'e2e-verified') CONTENT {
+			name: 'Recipe Box', description: 'Keep your recipes', redirect_uris: $redirects, scopes: $scopes,
+			first_party: false, public: true, owner: organization:acme, verified: true, review_status: 'approved'
+		}`, map[string]any{"redirects": redirects, "scopes": scopes})
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 func listen(port int, handler http.Handler) {

@@ -87,3 +87,46 @@ textarea {
   padding-left: 16px;
   color: var(--text-muted);
 }
+
+.app-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.app-logo {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-md);
+  object-fit: contain;
+  background: var(--surface, transparent);
+}
+
+.app-logo-initials {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 600;
+  font-size: 1.25rem;
+}
+
+.app-identity-text p {
+  margin: 0;
+}
+
+.app-name {
+  font-weight: 600;
+}
+
+.app-badge[data-verification="verified"] {
+  color: var(--ctx-green);
+  border-color: var(--ctx-green);
+}
+
+.scope-owner {
+  color: var(--text-muted);
+  font-size: 0.85em;
+}

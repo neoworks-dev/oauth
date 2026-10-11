@@ -15,11 +15,15 @@ func contentSecurityPolicy(config Config) string {
 	if config.APIURL != "" {
 		connectSources += " " + config.APIURL
 	}
+	imageSources := "'self' data:"
+	if config.AssetsURL != "" {
+		imageSources += " " + config.AssetsURL
+	}
 	directives := []string{
 		"default-src 'none'",
 		"script-src 'self' 'wasm-unsafe-eval'",
 		"style-src 'self'",
-		"img-src 'self' data:",
+		"img-src " + imageSources,
 		"font-src 'self'",
 		"connect-src " + connectSources,
 		"frame-ancestors 'none'",

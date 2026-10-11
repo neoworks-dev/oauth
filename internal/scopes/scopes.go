@@ -173,3 +173,15 @@ func WithoutCollection(held []string, collection string) []string {
 	}
 	return remaining
 }
+
+// Handles lists the handles (the part after @) that own the collections, once each.
+func Handles(collections []string) []string {
+	handles := []string{}
+	for _, collection := range collections {
+		handle, _, found := strings.Cut(strings.TrimPrefix(collection, "@"), "/")
+		if found && !slices.Contains(handles, handle) {
+			handles = append(handles, handle)
+		}
+	}
+	return handles
+}

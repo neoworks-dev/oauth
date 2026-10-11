@@ -22,6 +22,8 @@ const maxBodyBytes = 1 << 20
 // Store is the database slice the vault needs.
 type Store interface {
 	GetClient(ctx context.Context, clientID string) (*store.Client, error)
+	ClientOwner(ctx context.Context, client *store.Client) (*store.Owner, error)
+	HandleOwners(ctx context.Context, handles []string) (map[string]store.Owner, error)
 	GetUserByEmail(ctx context.Context, email string) (*store.User, error)
 	GetUserByID(ctx context.Context, userID string) (*store.User, error)
 	GetKeyBundle(ctx context.Context, userID string) (*store.KeyBundle, error)
@@ -86,6 +88,9 @@ type Config struct {
 	// AuthenticatorClientID is the OAuth client of the Neoworks Authenticator,
 	// the only client whose tokens may deliver an AMK in a handover.
 	AuthenticatorClientID string
+	// AssetsURL is the public origin of the assets listener, where app logos
+	// are served. The consent screen may load images from it.
+	AssetsURL string
 	// CodeSendMaxPerIP overrides how many verification emails one IP may
 	// request per window. Zero keeps the default. Browser tests raise it.
 	CodeSendMaxPerIP int
@@ -169,6 +174,13 @@ func writeJSON(response http.ResponseWriter, status int, body any) {
 	_ = json.NewEncoder(response).Encode(body)
 }
 
+// retryAfterSeconds is what a refused call is told to wait: the shortest window
+// of the vault's limits.
+const retryAfterSeconds = "60"
+
 func writeError(response http.ResponseWriter, status int, code string) {
+	if status == http.StatusTooManyRequests {
+		response.Header().Set("Retry-After", retryAfterSeconds)
+	}
 	writeJSON(response, status, map[string]string{"error": code})
 }

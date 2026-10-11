@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -17,6 +18,7 @@ import (
 	"github.com/neoworks/oauth/internal/cache"
 	"github.com/neoworks/oauth/internal/config"
 	"github.com/neoworks/oauth/internal/mail"
+	"github.com/neoworks/oauth/internal/ratelimit"
 	"github.com/neoworks/oauth/internal/signing"
 	"github.com/neoworks/oauth/internal/store"
 	"github.com/neoworks/oauth/internal/tokens"
@@ -57,6 +59,7 @@ func main() {
 		SecureCookies:         config.SecureCookies(),
 		PreloginSecret:        preloginSecret(keys),
 		AuthenticatorClientID: config.Env("AUTHENTICATOR_CLIENT_ID", "neoworks-authenticator"),
+		AssetsURL:             assetsURL(),
 	}, database, redis, issuer, mail.NewSender(mail.ConfigFromEnv()), escrowFromEnv())
 
 	oauthRouter := chi.NewRouter()
@@ -65,6 +68,7 @@ func main() {
 		Store: database, State: redis, Issuer: issuer, Keys: keys, Vault: vault,
 		IssuerURL: issuerURL, VaultURL: vaultURL,
 		GoogleConfig: googlehandler.ConfigFromEnv(), GoogleClient: http.DefaultClient,
+		Limiter: ratelimit.New(redis, database),
 	}))
 	vaultRouter := chi.NewRouter()
 	vaultRouter.Use(chimiddleware.Logger, chimiddleware.Recoverer, chimiddleware.RealIP)
@@ -90,4 +94,9 @@ func serve(name, address string, handler http.Handler) {
 	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("%s server: %v", name, err)
 	}
+}
+
+// assetsURL is the public origin of the assets listener, where app logos are served.
+func assetsURL() string {
+	return strings.TrimRight(config.Env("ASSETS_PUBLIC_URL", config.ServiceURL("assets")), "/")
 }

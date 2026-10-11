@@ -43,6 +43,10 @@ func (handler *AuthorizeHandler) handleAuthorize(response http.ResponseWriter, r
 	if !ok {
 		return
 	}
+	if client.Suspended() {
+		RedirectToErrorPage(response, request, "access_denied", "Neoworks suspended this application, so it cannot sign you in. Contact its developer.")
+		return
+	}
 	redirectURI := query.Get("redirect_uri")
 	state := query.Get("state")
 	requestedScopes := strings.Fields(query.Get("scope"))

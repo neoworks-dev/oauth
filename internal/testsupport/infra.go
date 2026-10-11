@@ -24,7 +24,7 @@ import (
 // tables are declared schemaless; the real schema belongs to the api migrations.
 var tables = []string{
 	"user", "key_bundle", "identity_key", "device", "client", "refresh_token", "install", "certificate",
-	"access_grant", "access_log", "grant", "node", "registry_schema", "registry_schema_version",
+	"access_grant", "access_log", "grant", "node", "registry_schema", "registry_schema_version", "handle", "organization",
 }
 
 // Surreal is a running in-memory SurrealDB.
@@ -175,7 +175,7 @@ func (surreal *Surreal) CreateClient(clientID string, redirectURIs, clientScopes
 	_, err := surrealdb.Query[any](context.Background(), surreal.db, `
 		CREATE $id CONTENT {
 			name: $name, redirect_uris: $redirect_uris, scopes: $scopes,
-			first_party: $first_party, public: true
+			first_party: $first_party, public: true, review_status: 'none'
 		}`,
 		map[string]any{
 			"id": models.NewRecordID("client", clientID), "name": "Test " + clientID,

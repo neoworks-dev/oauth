@@ -11,6 +11,7 @@ import (
 	staticassets "github.com/neoworks/oauth/handlers/static"
 	vaulthandler "github.com/neoworks/oauth/handlers/vault"
 	"github.com/neoworks/oauth/internal/cache"
+	"github.com/neoworks/oauth/internal/ratelimit"
 	"github.com/neoworks/oauth/internal/signing"
 	"github.com/neoworks/oauth/internal/store"
 	"github.com/neoworks/oauth/internal/tokens"
@@ -27,6 +28,8 @@ type OAuthDependencies struct {
 	VaultURL     string
 	GoogleConfig googlehandler.Config
 	GoogleClient googlehandler.Doer
+	// Limiter limits the authorize and token endpoints; nil turns the limits off.
+	Limiter *ratelimit.Limiter
 }
 
 // NewOAuthRouter builds the router of the oauth origin.
@@ -34,8 +37,8 @@ func NewOAuthRouter(deps OAuthDependencies) http.Handler {
 	router := chi.NewRouter()
 	router.Use(machineCORS)
 
-	oauthhandlers.NewAuthorizeHandler(deps.Store, deps.State, deps.VaultURL).Register(router)
-	oauthhandlers.NewTokenHandler(deps.State, deps.Store, deps.Issuer).Register(router)
+	oauthhandlers.NewAuthorizeHandler(deps.Store, deps.State, deps.VaultURL).Register(limited(router, deps.Limiter, ratelimit.BucketAuthorize, ratelimit.QueryClientID))
+	oauthhandlers.NewTokenHandler(deps.State, deps.Store, deps.Issuer).Register(limited(router, deps.Limiter, ratelimit.BucketToken, ratelimit.FormClientID))
 	oauthhandlers.NewErrorPageHandler().Register(router)
 	oauthhandlers.NewJWKSHandler(deps.Keys).Register(router)
 	oauthhandlers.NewDiscoveryHandler(deps.IssuerURL).Register(router)
@@ -51,6 +54,15 @@ func NewOAuthRouter(deps OAuthDependencies) http.Handler {
 		oauthhandlers.NewUserInfoHandler(deps.Store).Register(protected)
 	})
 	return router
+}
+
+// limited returns the router the endpoints of a bucket register on: with the
+// limiter in front of them, or the router itself when there is none.
+func limited(router chi.Router, limiter *ratelimit.Limiter, bucket ratelimit.Bucket, clientOf ratelimit.ClientIDFunc) chi.Router {
+	if limiter == nil {
+		return router
+	}
+	return router.With(limiter.Middleware(bucket, clientOf))
 }
 
 // machineCORS lets browser apps call the token endpoints. The interactive

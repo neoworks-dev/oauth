@@ -79,6 +79,10 @@ func (handler *TokenHandler) authenticateCodeExchange(response http.ResponseWrit
 		tokenError(response, "invalid_client", http.StatusBadRequest)
 		return false
 	}
+	if client.Suspended() {
+		suspendedError(response)
+		return false
+	}
 	err = tokens.VerifyPKCE(request.FormValue("code_verifier"), authCode.CodeChallenge, authCode.CodeChallengeMethod)
 	if err != nil {
 		slog.WarnContext(ctx, "pkce verification failed", "client_id", authCode.ClientID)

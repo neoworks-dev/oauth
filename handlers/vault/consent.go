@@ -90,6 +90,11 @@ func (server *Server) consentContextFor(response http.ResponseWriter, request *h
 		writeError(response, http.StatusNotFound, "challenge_not_found")
 		return consentContext{}, false
 	}
+	client, err := server.store.GetClient(request.Context(), challenge.ClientID)
+	if err != nil || client.Suspended() {
+		writeError(response, http.StatusForbidden, "app_suspended")
+		return consentContext{}, false
+	}
 	if !scopes.Subset(challenge.Scopes, body.Scopes) {
 		writeError(response, http.StatusBadRequest, "scope_not_requested")
 		return consentContext{}, false

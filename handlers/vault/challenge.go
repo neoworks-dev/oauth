@@ -5,6 +5,7 @@ import (
 	"net/url"
 
 	"github.com/neoworks/oauth/internal/cache"
+	"github.com/neoworks/oauth/internal/scopes"
 	"github.com/neoworks/oauth/internal/store"
 )
 
@@ -16,9 +17,19 @@ type challengeView struct {
 	Scopes     []string `json:"scopes"`
 	// FirstParty is true for Neoworks' own apps, the only ones that may skip the
 	// consent screen.
-	FirstParty     bool         `json:"firstParty"`
-	RedirectOrigin string       `json:"redirectOrigin"`
-	Install        *installView `json:"install"`
+	FirstParty bool `json:"firstParty"`
+	// Description, Owner, Verified, ReviewStatus and LogoURL tell the user who
+	// is behind the app. Owner is null for an app nobody owns, LogoURL when
+	// there is no logo users may see; the screen then shows initials.
+	Description  string       `json:"description"`
+	Owner        *store.Owner `json:"owner"`
+	Verified     bool         `json:"verified"`
+	ReviewStatus string       `json:"reviewStatus"`
+	LogoURL      *string      `json:"logoUrl"`
+	// ScopeOwners names the owner of each scope (handle) the request touches.
+	ScopeOwners    map[string]store.Owner `json:"scopeOwners"`
+	RedirectOrigin string                 `json:"redirectOrigin"`
+	Install        *installView           `json:"install"`
 	// Collections are the registry schemas of the collections the request and
 	// the app's earlier authorization name, for their titles and node descriptors.
 	Collections map[string]store.CollectionSchema `json:"collections"`
@@ -45,6 +56,10 @@ func (server *Server) handleChallenge(response http.ResponseWriter, request *htt
 		writeError(response, http.StatusNotFound, "challenge_not_found")
 		return
 	}
+	if client.Suspended() {
+		writeError(response, http.StatusForbidden, "app_suspended")
+		return
+	}
 	history, err := server.historyFor(request, client.ID)
 	if err != nil {
 		writeError(response, http.StatusInternalServerError, "server_error")
@@ -65,7 +80,33 @@ func (server *Server) handleChallenge(response http.ResponseWriter, request *htt
 		Collections:    collections,
 		History:        history,
 	}
+	if err := server.describeApp(request, &view, client, history); err != nil {
+		writeError(response, http.StatusInternalServerError, "server_error")
+		return
+	}
 	writeJSON(response, http.StatusOK, view)
+}
+
+// describeApp adds who is behind the app and who owns the scopes it asks for.
+func (server *Server) describeApp(request *http.Request, view *challengeView, client *store.Client, history *historyView) error {
+	owner, err := server.store.ClientOwner(request.Context(), client)
+	if err != nil {
+		return err
+	}
+	scopeOwners, err := server.store.HandleOwners(request.Context(), scopes.Handles(challengeCollections(view.Scopes, history)))
+	if err != nil {
+		return err
+	}
+	view.Description = client.Description
+	view.Owner = owner
+	view.Verified = client.Verified || client.FirstParty
+	view.ReviewStatus = client.ReviewStatus
+	view.ScopeOwners = scopeOwners
+	if assetID := client.LogoAssetID(); assetID != "" {
+		logoURL := server.config.AssetsURL + "/assets/" + assetID
+		view.LogoURL = &logoURL
+	}
+	return nil
 }
 
 func displayName(name, fallback string) string {

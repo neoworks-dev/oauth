@@ -44,3 +44,10 @@ func TestWithoutCollectionDropsEveryScopeOfOneCollection(t *testing.T) {
 		t.Errorf("WithoutCollection = %v, want %v", got, want)
 	}
 }
+
+func TestHandlesListsTheOwnersOfCollectionsOnce(t *testing.T) {
+	got := Handles([]string{"@neoworks/calendar", "@acme/recipes", "@neoworks/photos", "garbage"})
+	if len(got) != 2 || got[0] != "neoworks" || got[1] != "acme" {
+		t.Fatalf("handles: %v", got)
+	}
+}

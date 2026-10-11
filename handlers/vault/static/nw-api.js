@@ -89,6 +89,7 @@ const ERROR_MESSAGES = {
   escrow_unavailable: "Key recovery help is not available right now.",
   challenge_not_found: "This sign-in request has expired. Go back to the app and start again.",
   challenge_used: "This sign-in request was already used. Go back to the app and start again.",
+  app_suspended: "Neoworks suspended this app, so it cannot get access to your account.",
   escrow_failed: "The recovery service did not respond. Try again later.",
 };
 
@@ -99,7 +100,7 @@ export function describeError(error) {
   return "Something went wrong. Please try again.";
 }
 
-const CHALLENGE_ERROR_CODES = ["challenge_not_found", "challenge_used"];
+const CHALLENGE_ERROR_CODES = ["challenge_not_found", "challenge_used", "app_suspended"];
 
 // isChallengeGone is true when the authorization request can never succeed on retry.
 export function isChallengeGone(error) {

@@ -101,3 +101,10 @@ func writeJSON(response http.ResponseWriter, status int, body any) {
 func tokenError(response http.ResponseWriter, code string, status int) {
 	writeJSON(response, status, map[string]string{"error": code})
 }
+
+// suspendedError tells an app that Neoworks suspended it.
+func suspendedError(response http.ResponseWriter) {
+	writeJSON(response, http.StatusBadRequest, map[string]string{
+		"error": "unauthorized_client", "error_description": "Neoworks suspended this application.",
+	})
+}

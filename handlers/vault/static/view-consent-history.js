@@ -3,6 +3,7 @@
 // what it already holds, what is new and what it keeps.
 
 import { describeError, getJson, postJson } from "./nw-api.js";
+import { colourFor, collectionOwner, initialsOf, ownerLine, ownerText, reviewNotice, verificationNotice } from "./nw-app-identity.js";
 import { accessByCollection, classifyRequest, heldScopesOf, keptCollections, keptScopes } from "./nw-consent-history.js";
 import { buildKeyIndex, nodeNames } from "./nw-consent-tree.js";
 import { errorBox, h, withBusy } from "./nw-dom.js";
@@ -15,14 +16,48 @@ function formatTime(value) {
   return new Date(value).toLocaleString();
 }
 
-// thirdPartyNotice marks apps that are not made by Neoworks. No app is
-// verified yet, so every third-party app is also shown as unverified.
-export function thirdPartyNotice(challenge) {
-  if (challenge.firstParty === true) {
-    return [];
+// appIdentity introduces the app: its logo (or initials on a colour derived from
+// its id), its name, who published it and whether its domains are verified. A
+// third-party app is always marked, and marked unverified until its owner proved
+// the domains it uses.
+export function appIdentity(challenge) {
+  const notice = verificationNotice(challenge);
+  const review = reviewNotice(challenge);
+  const lines = [
+    h("p", { class: "app-name", id: "app-name" }, challenge.clientName),
+    h("p", { class: "hint", id: "app-owner" }, ownerLine(challenge)),
+  ];
+  if (challenge.description) {
+    lines.push(h("p", { class: "hint", id: "app-description" }, challenge.description));
   }
-  return [h("p", { class: "app-badge", id: "third-party-notice" },
-    "Third-party app: not made by Neoworks and not verified.")];
+  const identity = [h("div", { class: "app-identity" }, appLogo(challenge), h("div", { class: "app-identity-text" }, lines))];
+  if (challenge.firstParty !== true) {
+    identity.push(h("p", { class: "app-badge", id: "third-party-notice", "data-verification": notice.state }, notice.text));
+  }
+  if (review !== null) {
+    identity.push(h("p", { class: "hint", id: "app-review" }, review));
+  }
+  return identity;
+}
+
+// appLogo is the logo image, or the initials badge when the app has no logo a
+// user may see.
+function appLogo(challenge) {
+  if (challenge.logoUrl) {
+    return h("img", { class: "app-logo", id: "app-logo", src: challenge.logoUrl, alt: "" });
+  }
+  const badge = h("span", { class: "app-logo app-logo-initials", id: "app-logo" }, initialsOf(challenge.clientName));
+  badge.style.backgroundColor = colourFor(challenge.clientId);
+  return badge;
+}
+
+// ownerNote names who owns the scope a collection lives in.
+export function ownerNote(challenge, collection) {
+  const owner = collectionOwner(collection, challenge.scopeOwners);
+  if (owner === null) {
+    return null;
+  }
+  return h("span", { class: "scope-owner" }, "from " + ownerText(owner));
 }
 
 // loadHeldNames names the nodes the app's installs reach. It returns an empty
@@ -81,7 +116,7 @@ function accessItem(challenge, collection, names) {
   if (nodes !== undefined) {
     lines.push(h("ul", { class: "access-nodes" }, nodes.map((node) => nodeLine(node, names, label))));
   }
-  return h("li", { "data-collection": collection }, h("strong", null, label), lines);
+  return h("li", { "data-collection": collection }, h("strong", null, label), " ", ownerNote(challenge, collection), lines);
 }
 
 function heldCollections(challenge) {
@@ -107,9 +142,19 @@ function alreadyGranted(challenge, names) {
   ];
 }
 
+// scopeOwnerNote names the owner of the collection a scope is for; identity
+// scopes have none.
+export function scopeOwnerNote(challenge, scope) {
+  const collection = collectionOf(scope);
+  if (collection === null) {
+    return null;
+  }
+  return ownerNote(challenge, collection);
+}
+
 function scopeItem(challenge, scope, tag) {
   const text = describeScope(scope, challenge.collections);
-  return h("li", { class: "scope-" + tag.kind }, text, " ", h("span", { class: "scope-tag" }, tag.text));
+  return h("li", { class: "scope-" + tag.kind }, text, " ", scopeOwnerNote(challenge, scope), h("span", { class: "scope-tag" }, tag.text));
 }
 
 // newlyRequested lists the non-share scopes that are new or widen access; the

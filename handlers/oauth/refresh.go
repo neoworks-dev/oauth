@@ -23,6 +23,9 @@ func (handler *TokenHandler) handleRefresh(response http.ResponseWriter, request
 		tokenError(response, "invalid_grant", http.StatusBadRequest)
 		return
 	}
+	if !handler.clientMayRefresh(response, request, refreshToken) {
+		return
+	}
 	cached, err := handler.state.GetRotationResult(ctx, refreshToken.ID)
 	if err == nil {
 		writeRefreshResult(response, cached)
@@ -38,6 +41,21 @@ func (handler *TokenHandler) handleRefresh(response http.ResponseWriter, request
 		return
 	}
 	handler.rotate(response, request, refreshToken)
+}
+
+// clientMayRefresh refuses the refresh of a client that was suspended or no
+// longer exists, and has written the answer when it does.
+func (handler *TokenHandler) clientMayRefresh(response http.ResponseWriter, request *http.Request, refreshToken *store.RefreshToken) bool {
+	client, err := handler.store.GetClient(request.Context(), refreshToken.ClientID)
+	if err != nil {
+		tokenError(response, "invalid_grant", http.StatusBadRequest)
+		return false
+	}
+	if client.Suspended() {
+		suspendedError(response)
+		return false
+	}
+	return true
 }
 
 // treatAsReplay revokes the grant when an already-rotated token comes back

@@ -22,7 +22,9 @@ import (
 	googlehandler "github.com/neoworks/oauth/handlers/google"
 	vaulthandler "github.com/neoworks/oauth/handlers/vault"
 	"github.com/neoworks/oauth/internal/app"
+	"github.com/neoworks/oauth/internal/cache"
 	"github.com/neoworks/oauth/internal/mail"
+	"github.com/neoworks/oauth/internal/ratelimit"
 	"github.com/neoworks/oauth/internal/signing"
 	"github.com/neoworks/oauth/internal/testsupport"
 	"github.com/neoworks/oauth/internal/tokens"
@@ -46,14 +48,16 @@ func TestMain(m *testing.M) {
 }
 
 const (
-	vaultOrigin = "http://vault.test"
-	appRedirect = "http://app.test/callback"
+	vaultOrigin  = "http://vault.test"
+	assetsOrigin = "http://assets.test"
+	appRedirect  = "http://app.test/callback"
 )
 
 // system is the full service over real Surreal and in-process Redis.
 type system struct {
 	t        *testing.T
 	redis    *miniredis.Miniredis
+	state    *cache.Store
 	oauth    http.Handler
 	vault    http.Handler
 	browser  *testsupport.Browser
@@ -71,6 +75,7 @@ func newSystem(t *testing.T) *system {
 	vaultServer := vaulthandler.NewServer(vaulthandler.Config{
 		VaultURL: vaultOrigin, APIURL: "http://api.test", OAuthURL: "http://oauth.test",
 		Debug: true, PreloginSecret: []byte("secret"), AuthenticatorClientID: "neoworks-authenticator",
+		AssetsURL: assetsOrigin,
 	}, testSurreal.Store, redis, issuer, mail.NewSender(mail.Config{}), vaulthandler.NoEscrow{})
 	if err := testSurreal.PublishCollections(testsupport.TestCollections); err != nil {
 		t.Fatal(err)
@@ -83,9 +88,10 @@ func newSystem(t *testing.T) *system {
 		Store: testSurreal.Store, State: redis, Issuer: issuer, Keys: signing.NewKeyManagerFromKey(signingKey),
 		Vault: vaultServer, IssuerURL: "http://oauth.test", VaultURL: vaultOrigin,
 		GoogleConfig: googlehandler.Config{}, GoogleClient: http.DefaultClient,
+		Limiter: ratelimit.New(redis, testSurreal.Store),
 	})
 	vaultRouter := vaultServer.Router()
-	return &system{t: t, redis: redisServer, oauth: oauthRouter, vault: vaultRouter, browser: testsupport.NewBrowser(t, vaultRouter), clientID: clientID}
+	return &system{t: t, redis: redisServer, state: redis, oauth: oauthRouter, vault: vaultRouter, browser: testsupport.NewBrowser(t, vaultRouter), clientID: clientID}
 }
 
 func allScopes() []string {

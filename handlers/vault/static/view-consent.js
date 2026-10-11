@@ -10,7 +10,7 @@ import { requireUnlocked } from "./nw-keystore.js";
 import { heading, mountView } from "./nw-layout.js";
 import { collectionLabel, collectionOf, collectionRoles, describeScope, describeShare, isShareScope, shareCollections } from "./nw-scopes.js";
 import { hash, utf8 } from "./nw-primitives.js";
-import { historySections, loadHeldNames, shareTag, thirdPartyNotice } from "./view-consent-history.js";
+import { appIdentity, historySections, loadHeldNames, ownerNote, scopeOwnerNote, shareTag } from "./view-consent-history.js";
 
 const CERTIFICATE_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -169,7 +169,7 @@ function scopeList(challenge) {
   }
   const shown = challenge.scopes.filter((scope) => !isShareScope(scope));
   const published = registryCollections(challenge);
-  return [h("ul", { class: "scopes" }, shown.map((scope) => h("li", null, describeScope(scope, published))))];
+  return [h("ul", { class: "scopes" }, shown.map((scope) => h("li", null, describeScope(scope, published), " ", scopeOwnerNote(challenge, scope))))];
 }
 
 // shareChoices renders the optional permission to share a collection with other
@@ -197,7 +197,7 @@ function nodeCheckbox(id, label, depth, checked, disabled, onChange) {
   return h("div", { class: "checkbox-row tree-row tree-depth-" + Math.min(depth, 4) }, input, h("label", { for: id }, label));
 }
 
-function collectionPicker(collection, collectionTree, selection, sharedNodes) {
+function collectionPicker(challenge, collection, collectionTree, selection, sharedNodes) {
   const containerBoxes = [];
   const label = collectionTree.root.name;
   const wholeBox = nodeCheckbox("whole-" + elementKey(collection), "All " + label, 0, true, false, (checked) => {
@@ -218,7 +218,7 @@ function collectionPicker(collection, collectionTree, selection, sharedNodes) {
     containerBoxes.push(row);
     rows.push(row);
   }
-  return h("fieldset", { class: "collection-picker" }, h("legend", null, "Give access to " + label), rows, sharedRows(selection, sharedNodes));
+  return h("fieldset", { class: "collection-picker" }, h("legend", null, "Give access to " + label, " ", ownerNote(challenge, collection)), rows, sharedRows(selection, sharedNodes));
 }
 
 // sharedRows lists what other people shared with the user. Passing it on to the
@@ -250,7 +250,7 @@ function sharedFor(plan, collection) {
 
 function pickers(plan) {
   return Object.entries(plan.selections).map(([collection, selection]) =>
-    collectionPicker(collection, plan.collectionTrees[collection], selection, sharedFor(plan, collection)));
+    collectionPicker(plan.challenge, collection, plan.collectionTrees[collection], selection, sharedFor(plan, collection)));
 }
 
 // refreshChallenge reloads the request now that a user is signed in, so the
@@ -292,7 +292,7 @@ export async function renderConsent(context) {
   const deny = h("button", { type: "button", class: "secondary", id: "deny", onclick: () => denyRequest(context) }, "Deny");
   mountView(context,
     ...heading(challenge.clientName + " wants access", context.session.email),
-    ...thirdPartyNotice(challenge), ...installDetails(challenge), ...scopeList(challenge),
+    ...appIdentity(challenge), ...installDetails(challenge), ...scopeList(challenge),
     ...historySections(context, heldNames), ...pickers(plan), ...choices, failure.element,
     h("div", { class: "actions" }, deny, allow));
 }
@@ -307,6 +307,10 @@ function installDetails(challenge) {
 // showConsentFailure replaces the consent screen; an expired or used request
 // gets no retry because only a new authorization from the app can succeed.
 function showConsentFailure(context, error) {
+  if (error instanceof ApiError && error.code === "app_suspended") {
+    mountView(context, ...heading("App suspended", describeError(error)));
+    return;
+  }
   if (isChallengeGone(error)) {
     mountView(context, ...heading("Sign-in expired", describeError(error)));
     return;

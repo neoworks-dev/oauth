@@ -163,3 +163,27 @@ test("a request with a swapped redirect address never reaches the vault", async 
   await expect(page).toHaveURL(/\/oauth\/error/);
   await expect(page.locator(".description")).toContainText("registered");
 });
+
+test("the screen says who is behind an app and whether its domains are verified", async ({ page }) => {
+  const account = newAccount();
+  await signUp(page, account);
+
+  const unverified = authorizeUrl("e2e-app", "openid @neoworks/calendar:read");
+  await page.goto(unverified.url);
+  await expect(page.locator("#third-party-notice")).toHaveAttribute("data-verification", "unverified");
+  await expect(page.locator("#third-party-notice")).toContainText("not verified");
+  await expect(page.locator("#app-owner")).toHaveText("Publisher unknown.");
+  await expect(page.locator("#app-logo")).toHaveText("TE");
+  await page.click("#deny");
+
+  const verified = authorizeUrl("e2e-verified", "openid @neoworks/calendar:read");
+  await page.goto(verified.url);
+  await expect(page.locator("#third-party-notice")).toHaveAttribute("data-verification", "verified");
+  await expect(page.locator("#third-party-notice")).toContainText("verified by Acme (@acme)");
+  await expect(page.locator("#app-owner")).toHaveText("Published by Acme (@acme).");
+  await expect(page.locator("#app-review")).toContainText("Reviewed and approved by Neoworks");
+  await expect(page.locator("#app-description")).toHaveText("Keep your recipes");
+  await expect(page.locator("#app-logo")).toHaveText("RB");
+  await expect(page.locator(".scopes li .scope-owner")).toContainText("from Neoworks (@neoworks)");
+  await page.click("#deny");
+});
