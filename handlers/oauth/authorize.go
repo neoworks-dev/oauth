@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"slices"
 	"strings"
 	"time"
 
@@ -107,7 +106,7 @@ func (handler *AuthorizeHandler) trustedClient(response http.ResponseWriter, req
 		RedirectToErrorPage(response, request, "unauthorized_client", "This application is not registered with Neoworks. Do not enter your credentials.")
 		return nil, false
 	}
-	if !slices.Contains(client.RedirectURIs, query.Get("redirect_uri")) {
+	if !redirectURIRegistered(client.RedirectURIs, query.Get("redirect_uri")) {
 		RedirectToErrorPage(response, request, "invalid_request", "This application asked to send you to an address it has not registered. The request was blocked.")
 		return nil, false
 	}
