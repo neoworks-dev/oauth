@@ -28,10 +28,11 @@ type Config struct {
 	Addr          string
 	SentinelAddrs []string
 	MasterName    string
+	Password      string
 }
 
 func ConfigFromEnv() Config {
-	config := Config{Addr: os.Getenv("REDIS_URL"), MasterName: os.Getenv("REDIS_MASTER_NAME")}
+	config := Config{Addr: os.Getenv("REDIS_URL"), MasterName: os.Getenv("REDIS_MASTER_NAME"), Password: os.Getenv("REDIS_PASSWORD")}
 	if config.Addr == "" {
 		config.Addr = "127.0.0.1:6379"
 	}
@@ -49,9 +50,10 @@ func New(config Config) *Store {
 		return &Store{client: redis.NewFailoverClient(&redis.FailoverOptions{
 			MasterName:    config.MasterName,
 			SentinelAddrs: config.SentinelAddrs,
+			Password:      config.Password,
 		})}
 	}
-	return &Store{client: redis.NewClient(&redis.Options{Addr: config.Addr})}
+	return &Store{client: redis.NewClient(&redis.Options{Addr: config.Addr, Password: config.Password})}
 }
 
 func (store *Store) saveJSON(ctx context.Context, key string, value any, ttl time.Duration) error {
