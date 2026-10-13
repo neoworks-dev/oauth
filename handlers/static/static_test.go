@@ -18,9 +18,12 @@ func TestServesSharedAssets(t *testing.T) {
 		contentType string
 	}{
 		{"/static/neoworks.css", "text/css; charset=utf-8"},
+		{"/static/theme.js", "text/javascript; charset=utf-8"},
 		{"/static/geist-400.woff2", "font/woff2"},
 		{"/static/geist-500.woff2", "font/woff2"},
 		{"/static/geist-600.woff2", "font/woff2"},
+		{"/static/caveat-500.woff2", "font/woff2"},
+		{"/static/marmot/waving.webp", "image/webp"},
 	}
 
 	for _, tc := range cases {
@@ -49,9 +52,22 @@ func TestCSSReferencesDesignTokens(t *testing.T) {
 		t.Fatalf("read css: %v", err)
 	}
 	css := string(data)
-	for _, token := range []string{"--primary", "--surface-input", "@font-face", "prefers-color-scheme"} {
+	for _, token := range []string{"--primary", "--surface-input", "@font-face", `[data-theme="light"]`} {
 		if !strings.Contains(css, token) {
 			t.Errorf("neoworks.css missing %q", token)
+		}
+	}
+}
+
+func TestMarmotRouteServesOnlyEmbeddedImages(t *testing.T) {
+	router := chi.NewRouter()
+	NewHandler().Register(router)
+
+	for _, path := range []string{"/static/marmot/missing.webp", "/static/marmot/waving.png", "/static/marmot/..%2Fneoworks.css"} {
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if recorder.Code != http.StatusNotFound {
+			t.Errorf("%s: status = %d, want 404", path, recorder.Code)
 		}
 	}
 }

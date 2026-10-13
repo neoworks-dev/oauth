@@ -1,0 +1,227 @@
+/*
+ * The scrapbook look of the auth pages: a taped sheet of paper in front of the
+ * landing page's mountains. Loaded after components.css, so it overrides the plain
+ * card, field and button styles those define.
+ */
+
+body {
+  background: linear-gradient(to bottom, var(--sky), var(--paper));
+  position: relative;
+  overflow-x: hidden;
+  padding: 1rem;
+}
+
+/* Fixed behind the card; the ridge colours switch to their night values with the theme. */
+.scene {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.ridge-far-fill { fill: var(--ridge-far); }
+.ridge-mid-far-fill { fill: var(--ridge-mid-far); }
+.ridge-mid-fill { fill: var(--ridge-mid); }
+.ridge-near-fill { fill: var(--ridge-near); }
+.ridge-front-fill { fill: var(--ridge-front); }
+.ridge-outline {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.card {
+  position: relative;
+  z-index: 1;
+  margin: 1.5rem 0;
+  max-width: 420px;
+  padding: 2.5rem 2.25rem;
+  border: 0;
+  border-radius: 3px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+}
+.card.wide { max-width: 460px; }
+.card.split { max-width: 680px; }
+
+/* The strip of tape that holds the sheet to the page. */
+.card::before {
+  content: "";
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  width: 80px;
+  height: 24px;
+  transform: translateX(-50%) rotate(-2deg);
+  background: var(--tape);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+h1 {
+  font-size: 1.75rem;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+/* In the top right corner of the sheet, level with the logo. */
+.card-marmot {
+  position: absolute;
+  top: 1.25rem;
+  right: 1.25rem;
+  height: 4.5rem;
+  width: auto;
+  pointer-events: none;
+  user-select: none;
+}
+
+input:not([type]),
+input[type='text'],
+input[type='email'],
+input[type='password'],
+textarea {
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+}
+input:focus,
+textarea:focus {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-soft);
+}
+
+/* The primary action, like the landing page's green buttons. */
+button {
+  background: var(--brand);
+  color: var(--brand-fg);
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  font-weight: 600;
+}
+button:hover {
+  background: var(--brand-hover);
+}
+
+a {
+  color: var(--text);
+  text-underline-offset: 2px;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-faint);
+}
+
+/* Phones: the card fills the width and the names stack. */
+@media (max-width: 480px) {
+  .card {
+    padding: 1.75rem 1.25rem;
+  }
+  .row {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .card-marmot {
+    top: 1rem;
+    right: 1rem;
+    height: 3.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .logo {
+    margin-bottom: 1.25rem;
+  }
+  .subtitle {
+    margin-bottom: 1.25rem;
+  }
+}
+
+/* The links between screens (create an account, sign in, forgot password) need to be easy to spot. */
+.signin-link {
+  margin-top: 1.25rem;
+  font-size: 0.9rem;
+}
+.signin-link a {
+  color: var(--brand);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+.signin-link a:hover {
+  color: var(--brand-hover);
+}
+
+/* Choosing between two options, side by side (escrow). */
+.card.choices {
+  max-width: 760px;
+}
+.choice-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.choice-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 1rem;
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.85rem;
+  line-height: 1.45;
+  cursor: pointer;
+}
+.choice-card:has(input:checked) {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+  box-shadow: 0 0 0 3px var(--brand-soft);
+}
+.choice-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin-bottom: 0.4rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.choice-title input {
+  margin-top: 0.25rem;
+  accent-color: var(--brand);
+}
+.choice-heading {
+  margin-top: 0.4rem;
+  font-family: var(--font-hand);
+  font-size: 1.2rem;
+  line-height: 1;
+}
+.choice-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.choice-list li {
+  position: relative;
+  padding-left: 1.25rem;
+  color: var(--text-muted);
+}
+.choice-list li::before {
+  position: absolute;
+  left: 0;
+  font-weight: 700;
+}
+.choice-pros.choice-heading { color: var(--ctx-green); }
+.choice-cons.choice-heading { color: var(--ctx-red); }
+.choice-pros li::before { content: "+"; color: var(--ctx-green); }
+.choice-cons li::before { content: "–"; color: var(--ctx-red); }
+
+@media (max-width: 640px) {
+  .choice-grid {
+    grid-template-columns: 1fr;
+  }
+}

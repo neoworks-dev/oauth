@@ -29,7 +29,7 @@ async function unlockWithDeviceWrap(session) {
 }
 
 function passwordForm(session, remembered, onDone) {
-  const password = field("Password", { id: "password", type: "password", autocomplete: "current-password", required: true, autofocus: true });
+  const password = field("Password", { id: "password", type: "password", placeholder: "Your password", autocomplete: "current-password", required: true, autofocus: true });
   const remember = h("input", { type: "checkbox", id: "remember", checked: remembered });
   const failure = errorBox();
   const submit = h("button", { type: "submit" }, "Unlock");
