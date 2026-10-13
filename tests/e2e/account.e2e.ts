@@ -23,6 +23,18 @@ test("signup, sign-out, sign-in and a remembered browser", async ({ page }) => {
   expect(violations).toEqual([]);
 });
 
+test("signup stops before sending a code when the passwords differ", async ({ page }) => {
+  await page.goto("/signup");
+  await page.fill("#first-name", "Ada");
+  await page.fill("#last-name", "Lovelace");
+  await page.fill("#email", newAccount().email);
+  await page.fill("#password", "correct horse battery");
+  await page.fill("#password-confirm", "correct horse batter");
+  await page.click("button[type=submit]");
+  await expect(page.getByRole("alert")).toHaveText("The passwords do not match.");
+  await expect(page.locator("#code")).toHaveCount(0);
+});
+
 test("the account page shows the user's contact code", async ({ page }) => {
   const violations = collectViolations(page);
   await signUp(page, newAccount());

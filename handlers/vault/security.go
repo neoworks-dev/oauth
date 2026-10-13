@@ -31,7 +31,9 @@ func contentSecurityPolicy(config Config) string {
 		"form-action 'self'",
 		"object-src 'none'",
 		"require-trusted-types-for 'script'",
-		"trusted-types 'none'",
+		// Svelte's runtime creates exactly this policy for the templates it compiles. Nothing
+		// else may create one, and `{@html}` is banned in ui/ (see tests/no_html_tags.test.ts).
+		"trusted-types svelte-trusted-html",
 	}
 	return strings.Join(directives, "; ")
 }
