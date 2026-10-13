@@ -9,6 +9,7 @@ test("signup offers two escrow options and recommends keeping the key to yoursel
   await page.fill("#last-name", "Lovelace");
   await page.fill("#email", newAccount().email);
   await page.fill("#password", "correct horse battery");
+  await page.fill("#password-confirm", "correct horse battery");
   await page.click("button[type=submit]");
   const code = (await page.locator("#debug-code").textContent())!.replace(/\D/g, "");
   await page.fill("#code", code);

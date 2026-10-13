@@ -8,7 +8,7 @@ import { clearDeviceWrap, hasDeviceWrap, lock, requireUnlocked, saveDeviceWrap }
 import { heading, mountView } from "./nw-layout.js";
 import { bytesToWords } from "./nw-recovery.js";
 import { renderEscrowSettings } from "./view-escrow-settings.js";
-import { renderRecoveryKeyConfirmation } from "./view-recovery-key.js";
+import { renderRecoveryKeyConfirmation } from "./vault-views.js";
 
 const MIN_PASSWORD_LENGTH = 8;
 

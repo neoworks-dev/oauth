@@ -93,7 +93,7 @@ func TestVaultPagesSendHardeningHeaders(t *testing.T) {
 	vault := newTestVault(t)
 	response := vault.browser.Do("GET", "/signin", nil, nil)
 	policy := response.Header.Get("Content-Security-Policy")
-	for _, want := range []string{"frame-ancestors 'none'", "script-src 'self' 'wasm-unsafe-eval'", "require-trusted-types-for 'script'", "default-src 'none'"} {
+	for _, want := range []string{"frame-ancestors 'none'", "script-src 'self' 'wasm-unsafe-eval'", "require-trusted-types-for 'script'", "trusted-types svelte-trusted-html", "default-src 'none'"} {
 		if !contains(policy, want) {
 			t.Errorf("CSP %q lacks %q", policy, want)
 		}

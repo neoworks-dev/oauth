@@ -6,7 +6,7 @@ import { describeError, getJson, postJson } from "./nw-api.js";
 import { ESCROW_PUBLIC_KEY } from "./escrow-key.js";
 import { errorBox, field, h, withBusy } from "./nw-dom.js";
 import { bytesToWords } from "./nw-recovery.js";
-import { renderRecoveryKeyConfirmation } from "./view-recovery-key.js";
+import { renderRecoveryKeyConfirmation } from "./vault-views.js";
 
 const TRADE_OFF = "The trade-off: we, or anyone who breaks into or legally compels us, could decrypt your data.";
 const DISABLE_NOTE = "Turning this off replaces your account key and identity keys, creates a new recovery key and deletes our copy. " +

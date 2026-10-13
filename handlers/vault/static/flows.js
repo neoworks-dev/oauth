@@ -2,7 +2,7 @@
 
 import { getJson } from "./nw-api.js";
 import { currentUserId, hasDeviceWrap, isUnlocked, loadDeviceWrap, unlock } from "./nw-keystore.js";
-import { renderLogin } from "./view-login.js";
+import { renderLogin } from "./vault-views.js";
 import { renderUnlock } from "./view-unlock.js";
 
 // tryDeviceUnlock opens the keystore from this browser's device wrap.

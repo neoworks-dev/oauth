@@ -1,0 +1,17 @@
+/*
+ * Source of handlers/static/assets/neoworks.css, the stylesheet shared by the
+ * auth pages. Do not edit the output: change these files and run
+ * `bun run build:css`. The output is committed, so the Go servers are built
+ * without any JavaScript toolchain.
+ */
+@import "tailwindcss";
+@import "@neoworks-dev/ui/styles/neoworks";
+
+@source "../ui";
+@source "../handlers/vault/static";
+@source "../handlers/vault/templates";
+@source "../handlers/oauth/templates";
+
+@import "./fonts.css";
+@import "./components.css";
+@import "./scrapbook.css";

@@ -9,10 +9,8 @@ import { heading, mountView } from "./nw-layout.js";
 import { collectionRoles } from "./nw-scopes.js";
 import { ready } from "./nw-primitives.js";
 import { renderAccount } from "./view-account.js";
-import { renderCancelRecovery } from "./view-cancel-recovery.js";
 import { renderConsent } from "./view-consent.js";
-import { renderRecover } from "./view-recover.js";
-import { renderSignup } from "./view-signup.js";
+import { renderCancelRecovery, renderRecover, renderSignup } from "./vault-views.js";
 
 const root = document.getElementById("app");
 const context = {

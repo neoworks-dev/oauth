@@ -38,6 +38,7 @@ export async function signUp(
   await page.fill("#last-name", "Lovelace");
   await page.fill("#email", account.email);
   await page.fill("#password", account.password);
+  await page.fill("#password-confirm", account.password);
   await page.click("button[type=submit]");
   const hint = page.locator("#debug-code");
   await expect(hint).toContainText("Development code");
